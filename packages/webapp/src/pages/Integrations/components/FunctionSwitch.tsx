@@ -12,10 +12,10 @@ import { Switch } from '@/components-v2/ui/switch';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { usePermissions } from '@/hooks/usePermissions';
 
-import type { ApiError, ApiIntegration, NangoActionFunctionDeployed, NangoSyncFunctionDeployed } from '@nangohq/types';
+import type { ApiError, ApiIntegration, DeployedNangoActionFunction, DeployedNangoSyncFunction } from '@nangohq/types';
 
 export const FunctionSwitch: React.FC<{
-    flow: NangoSyncFunctionDeployed | NangoActionFunctionDeployed;
+    flow: DeployedNangoSyncFunction | DeployedNangoActionFunction;
     integration: ApiIntegration;
 }> = ({ flow, integration }) => {
     const { toast } = useToast();
