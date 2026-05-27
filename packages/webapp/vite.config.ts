@@ -17,7 +17,28 @@ export default defineConfig({
         checker({
             typescript: true
         }),
-        tailwindcss()
+        tailwindcss(),
+        // When running on a non-standard port, serve a modified env.js so that
+        // apiUrl is empty (relative), routing all API calls through the Vite proxy.
+        {
+            name: 'env-js-rewrite',
+            configureServer(server) {
+                // When running on a non-standard port, rewrite apiUrl so all API
+                // requests go through the Vite proxy instead of cross-origin to 3003.
+                server.middlewares.use('/env.js', (req, res, next) => {
+                    const host = req.headers.host || 'localhost:3002';
+                    const apiUrl = `http://${host}`;
+                    fetch('http://localhost:3003/env.js')
+                        .then((r) => r.text())
+                        .then((text) => {
+                            const rewritten = text.replace(/"apiUrl":\s*"[^"]*"/, `"apiUrl": "${apiUrl}"`);
+                            res.setHeader('Content-Type', 'application/javascript');
+                            res.end(rewritten);
+                        })
+                        .catch(() => next());
+                });
+            }
+        }
     ] as PluginOption[],
     resolve: {
         alias: {
@@ -29,7 +50,7 @@ export default defineConfig({
     },
     server: {
         proxy: {
-            '/env.js': 'http://localhost:3003'
+            '/api': { target: 'http://localhost:3003', changeOrigin: true }
         }
     },
     define: {
