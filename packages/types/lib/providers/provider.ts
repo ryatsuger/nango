@@ -95,6 +95,7 @@ export interface BaseProvider {
     require_client_certificate?: boolean;
     token_request_auth_method?: 'basic' | 'custom' | 'private_key_jwt';
     available_scopes?: string[];
+    default_oauth_client_id?: string;
 }
 
 export interface ProviderOAuth2 extends BaseProvider {
@@ -114,6 +115,12 @@ export interface ProviderOAuth2 extends BaseProvider {
 
     refresh_url?: string;
     expires_in_unit?: 'milliseconds';
+}
+
+export interface ProviderOAuth2Manual extends Omit<ProviderOAuth2, 'auth_mode'> {
+    auth_mode: 'OAUTH2_MANUAL';
+
+    redirect_uri: string;
 }
 
 export interface ProviderOAuth1 extends BaseProvider {
@@ -266,6 +273,7 @@ export type Provider =
     | BaseProvider
     | ProviderOAuth1
     | ProviderOAuth2
+    | ProviderOAuth2Manual
     | ProviderJwt
     | ProviderTwoStep
     | ProviderSignature
@@ -278,5 +286,5 @@ export type Provider =
     | ProviderMcpOAuth2Generic
     | ProviderInstallPlugin;
 
-export type RefreshableProvider = ProviderTwoStep | ProviderJwt | ProviderSignature | ProviderOAuth2 | ProviderMcpOAuth2Generic; // TODO: fix this type
+export type RefreshableProvider = ProviderTwoStep | ProviderJwt | ProviderSignature | ProviderOAuth2 | ProviderOAuth2Manual | ProviderMcpOAuth2Generic; // TODO: fix this type
 export type TestableProvider = ProviderApiKey; // TODO: fix this type

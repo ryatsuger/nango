@@ -1,0 +1,40 @@
+---
+title: Claude Code
+sidebarTitle: Claude Code
+---
+
+import Overview from "/snippets/overview.mdx"
+
+<Overview />
+
+## Access requirements
+| Pre-Requisites    | Status         | Comment                                                                 |
+| ----------------- | -------------- | ----------------------------------------------------------------------- |
+| Paid dev account  | ✅ Not required | A Claude Pro or Max subscription is used to authorize.                  |
+| Paid test account | ✅ Not required |                                                                         |
+| Partnership       | ✅ Not required |                                                                         |
+| App review        | ✅ Not required |                                                                         |
+| Security audit    | ✅ Not required |                                                                         |
+
+
+## Setup guide
+
+Claude Code uses a public OAuth client with PKCE and an out-of-band redirect. Because Anthropic does not accept a custom redirect URI for this client, the authorization is completed manually: Nango generates an authorization URL, you approve it in the browser, and you paste the resulting code back to Nango to finish the connection.
+
+<Tip>Need help getting started? Get help in the [community](https://nango.dev/slack).</Tip>
+
+
+## Useful links
+
+-   [Anthropic API documentation](https://docs.anthropic.com/en/api)
+
+## API gotchas
+
+-   This integration uses `auth_mode: OAUTH2_MANUAL`. The connection is created in two steps (`/oauth/manual/{providerConfigKey}/start` then `/oauth/manual/{providerConfigKey}/complete`); there is no hosted callback.
+-   The OAuth client is public (no client secret). The fixed public `client_id` is supplied by the provider template.
+
+## Going further
+
+<Card title="Connect to Claude Code" icon="link" href="/integrations/all/claude-code/connect" horizontal>
+  Guide to connect to Claude Code using the Nango API
+</Card>

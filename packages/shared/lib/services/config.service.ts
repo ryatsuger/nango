@@ -126,6 +126,9 @@ class ConfigService {
     }
 
     async createProviderConfig(config: DBCreateIntegration, provider: Provider): Promise<IntegrationConfig | null> {
+        if (!config.oauth_client_id && provider.default_oauth_client_id) {
+            config.oauth_client_id = provider.default_oauth_client_id;
+        }
         const configToInsert = config.oauth_client_secret ? encryptionManager.encryptProviderConfig(config as ProviderConfig) : config;
         configToInsert.missing_fields = this.validateProviderConfig(provider.auth_mode, config as ProviderConfig);
         if (!configToInsert.oauth_scopes && provider.default_scopes?.length) {

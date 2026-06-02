@@ -14,6 +14,7 @@ import { postPublicAppStoreAuthorization } from './controllers/auth/postAppStore
 import { postPublicBasicAuthorization } from './controllers/auth/postBasic.js';
 import { postPublicBillAuthorization } from './controllers/auth/postBill.js';
 import { postPublicJwtAuthorization } from './controllers/auth/postJwt.js';
+import { postPublicOAuthManualComplete, postPublicOAuthManualStart } from './controllers/auth/postOAuthManual.js';
 import { postPublicOauthOutboundAuthorization } from './controllers/auth/postOauthOutbound.js';
 import { postPublicSignatureAuthorization } from './controllers/auth/postSignature.js';
 import { postPublicTbaAuthorization } from './controllers/auth/postTba.js';
@@ -165,6 +166,8 @@ publicAPI.route('/app-auth/connect').get(appAuthController.connect.bind(appAuthC
 
 publicAPI.use('/oauth', jsonContentTypeMiddleware);
 publicAPI.route('/oauth/connect/:providerConfigKey').get(connectSessionOrPublicAuth, oauthController.oauthRequest.bind(oauthController));
+publicAPI.route('/oauth/manual/:providerConfigKey/start').post(connectSessionOrPublicAuth, postPublicOAuthManualStart);
+publicAPI.route('/oauth/manual/:providerConfigKey/complete').post(connectSessionOrPublicAuth, postPublicOAuthManualComplete);
 publicAPI.route('/oauth2/auth/:providerConfigKey').post(connectSessionOrPublicAuth, oauthController.oauth2RequestCC.bind(oauthController));
 publicAPI.route('/auth/oauth-outbound/:providerConfigKey').post(connectSessionOrPublicAuth, postPublicOauthOutboundAuthorization);
 publicAPI.use('/api-auth', jsonContentTypeMiddleware);

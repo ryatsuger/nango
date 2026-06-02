@@ -57,6 +57,7 @@ class ProviderClient {
             case 'clover':
             case 'absorb-lms':
             case 'posthog-oauth':
+            case 'claude-code':
                 return true;
             default:
                 return false;
@@ -142,6 +143,8 @@ class ProviderClient {
                 );
             case 'posthog-oauth':
                 return this.createPosthogOauthToken(tokenUrl, code, config.oauth_client_id, callBackUrl, codeVerifier);
+            case 'claude-code':
+                return this.createClaudeCodeToken(tokenUrl, code, config.oauth_client_id, callBackUrl, codeVerifier, connectionConfig?.['oauth_state']);
             default:
                 throw new NangoError('unknown_provider_client');
         }
@@ -256,6 +259,8 @@ class ProviderClient {
                 );
             case 'posthog-oauth':
                 return this.refreshPosthogOauthToken(interpolatedTokenUrl.href, credentials.refresh_token!, config.oauth_client_id);
+            case 'claude-code':
+                return this.refreshClaudeCodeToken(interpolatedTokenUrl.href, credentials.refresh_token!, config.oauth_client_id);
             default:
                 throw new NangoError('unknown_provider_client');
         }
@@ -1356,6 +1361,72 @@ class ProviderClient {
             throw new NangoError('posthog_oauth_refresh_token_request_error');
         } catch (err: any) {
             throw new NangoError('posthog_oauth_refresh_token_request_error', stringifyError(err));
+        }
+    }
+
+    // Public PKCE client: no client_secret is ever sent. Anthropic's token endpoint requires a JSON body.
+    private async createClaudeCodeToken(
+        tokenUrl: string,
+        code: string,
+        client_id: string,
+        redirect_uri: string,
+        code_verifier: string,
+        state?: string
+    ): Promise<AuthorizationTokenResponse> {
+        try {
+            const body: Record<string, string> = {
+                grant_type: 'authorization_code',
+                code,
+                client_id,
+                redirect_uri,
+                code_verifier
+            };
+
+            // Claude Code includes the state on the token exchange.
+            if (state) {
+                body['state'] = state;
+            }
+
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            const response = await axios.post(tokenUrl, body, { headers });
+
+            if (response.status === 200 && response.data) {
+                return {
+                    ...response.data
+                };
+            }
+
+            throw new NangoError('claude_code_token_request_error');
+        } catch (err: any) {
+            throw new NangoError('claude_code_token_request_error', stringifyError(err));
+        }
+    }
+
+    private async refreshClaudeCodeToken(tokenUrl: string, refreshToken: string, client_id: string): Promise<RefreshTokenResponse> {
+        try {
+            const body = {
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                client_id
+            };
+
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            const response = await axios.post(tokenUrl, body, { headers });
+
+            if (response.status === 200 && response.data) {
+                return {
+                    ...response.data
+                };
+            }
+            throw new NangoError('claude_code_refresh_token_request_error');
+        } catch (err: any) {
+            throw new NangoError('claude_code_refresh_token_request_error', stringifyError(err));
         }
     }
 

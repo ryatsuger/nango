@@ -114,6 +114,38 @@ export type PostPublicTbaAuthorization = Endpoint<{
     Success: ConnectionResponseSuccess;
 }>;
 
+export type PostPublicOAuthManualStart = Endpoint<{
+    Method: 'POST';
+    Body: Record<string, never>;
+    Querystring: ConnectionQueryString;
+    Params: {
+        providerConfigKey: string;
+    };
+    Path: '/oauth/manual/:providerConfigKey/start';
+    Error: AuthErrors;
+    Success: {
+        authorizationUrl: string;
+        state: string;
+        connectionId: string;
+    };
+}>;
+
+export type PostPublicOAuthManualComplete = Endpoint<{
+    Method: 'POST';
+    Body: {
+        authorization_response?: string | undefined;
+        code?: string | undefined;
+        state?: string | undefined;
+    };
+    Querystring: ConnectionQueryString;
+    Params: {
+        providerConfigKey: string;
+    };
+    Path: '/oauth/manual/:providerConfigKey/complete';
+    Error: AuthErrors | ApiError<'invalid_state'> | ApiError<'token_exchange_failed'>;
+    Success: ConnectionResponseSuccess;
+}>;
+
 export type PostPublicJwtAuthorization = Endpoint<{
     Method: 'POST';
     Body: Record<string, any>;

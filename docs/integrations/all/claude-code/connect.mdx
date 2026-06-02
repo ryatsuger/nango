@@ -1,0 +1,37 @@
+---
+title: Claude Code - How do I link my account?
+sidebarTitle: Claude Code
+---
+
+# Overview
+
+Claude Code uses a public OAuth client with PKCE and a manual (out-of-band) authorization flow. There is no hosted callback, so the connection is created in two API steps.
+
+### Prerequisites:
+
+- A Claude Pro or Max subscription.
+
+### Step 1: Start the manual authorization
+
+Call the start endpoint to get an authorization URL:
+
+```
+POST /oauth/manual/{providerConfigKey}/start
+```
+
+The response contains an `authorization_url`. Open it in your browser and approve the request.
+
+### Step 2: Copy the code
+
+After approving, Anthropic displays an authorization value in the form `code#state`. Copy it exactly.
+
+### Step 3: Complete the connection
+
+Submit the copied value to the complete endpoint:
+
+```
+POST /oauth/manual/{providerConfigKey}/complete
+{ "authorization_response": "<code>#<state>" }
+```
+
+Nango validates the state, exchanges the code for tokens, and stores the connection. Tokens are refreshed automatically.

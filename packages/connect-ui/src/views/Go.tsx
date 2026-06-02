@@ -38,6 +38,7 @@ const formSchema: Record<AuthModeType, z.ZodObject> = {
     NONE: z.object({}),
     OAUTH1: z.object({}),
     OAUTH2: z.object({}),
+    OAUTH2_MANUAL: z.object({}),
     OAUTH2_CC: z.object({
         client_id: z.string().min(1),
         client_secret: z.string().min(1),
@@ -343,6 +344,11 @@ export const Go: React.FC = () => {
                         ...values,
                         detectClosedAuthWindow
                     });
+                } else if (provider.auth_mode === 'OAUTH2_MANUAL') {
+                    const errorMsg = 'This integration uses a manual OAuth flow and must be connected via the Nango API.';
+                    setError(errorMsg);
+                    triggerError('unknown_error', errorMsg);
+                    return;
                 } else {
                     res = await nango.auth(integration.unique_key, {
                         params: values['params'] || {},

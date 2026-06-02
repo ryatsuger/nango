@@ -45,6 +45,7 @@
                         "OAUTH1",
                         "OAUTH2",
                         "OAUTH2_CC",
+                        "OAUTH2_MANUAL",
                         "CUSTOM",
                         "TBA",
                         "TABLEAU",
@@ -175,6 +176,9 @@
                 },
                 "decode_url": {
                     "type": "boolean"
+                },
+                "default_oauth_client_id": {
+                    "type": "string"
                 },
                 "default_scopes": {
                     "type": "array",
@@ -377,6 +381,9 @@
                             }
                         }
                     }
+                },
+                "redirect_uri": {
+                    "type": "string"
                 },
                 "redirect_uri_metadata": {
                     "type": "array",

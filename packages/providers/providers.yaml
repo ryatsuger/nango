@@ -4016,6 +4016,28 @@ clari-copilot:
             title: API Key
             description: The API key for your Clari Copilot account
 
+claude-code:
+    display_name: Claude Code
+    categories:
+        - dev-tools
+    auth_mode: OAUTH2_MANUAL
+    authorization_url: https://claude.ai/oauth/authorize
+    token_url: https://console.anthropic.com/v1/oauth/token
+    redirect_uri: https://console.anthropic.com/oauth/code/callback
+    default_oauth_client_id: 9d1c250a-e61b-44d9-88ed-5944d1962f5e
+    default_scopes:
+        - org:create_api_key
+        - user:profile
+        - user:inference
+    scope_separator: ' '
+    authorization_params:
+        response_type: code
+        code: 'true'
+    proxy:
+        base_url: https://api.anthropic.com
+    docs: https://nango.dev/docs/integrations/all/claude-code
+    docs_connect: https://nango.dev/docs/integrations/all/claude-code/connect
+
 clay:
     display_name: Clay
     categories:
