@@ -48,7 +48,8 @@ class RemoteFileService {
         if (isEnterprise) {
             this.useS3 = useS3;
         } else {
-            this.useS3 = !isLocal && !isTest;
+            // Self-hosted without S3 configured falls back to local file storage instead of failing on missing AWS credentials.
+            this.useS3 = !isLocal && !isTest && useS3;
         }
         const credentials = getCredentials();
         const config: S3ClientConfig = credentials ? { region, credentials } : { region };
