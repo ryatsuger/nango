@@ -408,6 +408,45 @@ export default class Nango {
         return { params };
     }
 
+    public async manualOAuthStart(
+        providerConfigKey: string,
+        options?: ConnectionConfig
+    ): Promise<{ authorizationUrl: string; state: string; connectionId: string }> {
+        this.ensureCredentials();
+
+        const url = this.hostBaseUrl + `/oauth/manual/${providerConfigKey}/start${this.toQueryString(null, options)}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}'
+        });
+
+        if (!res.ok) {
+            const errorResponse = await res.json();
+            throw new AuthError(errorResponse.error.message, errorResponse.error.code);
+        }
+
+        return res.json();
+    }
+
+    public async manualOAuthComplete(providerConfigKey: string, authorizationResponse: string, options?: ConnectionConfig): Promise<AuthSuccess> {
+        this.ensureCredentials();
+
+        const url = this.hostBaseUrl + `/oauth/manual/${providerConfigKey}/complete${this.toQueryString(null, options)}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ authorization_response: authorizationResponse })
+        });
+
+        if (!res.ok) {
+            const errorResponse = await res.json();
+            throw new AuthError(errorResponse.error.message, errorResponse.error.code);
+        }
+
+        return res.json();
+    }
+
     private async triggerAuth({
         authUrl,
         credentials,

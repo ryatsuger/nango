@@ -11,6 +11,7 @@ import { AuthError } from '@nangohq/frontend';
 
 import { CustomInput } from '@/components/CustomInput';
 import { HeaderButtons } from '@/components/HeaderButtons';
+import { ManualOAuth } from '@/components/ManualOAuth';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { triggerClose, triggerConnection, triggerError } from '@/lib/events';
@@ -344,11 +345,6 @@ export const Go: React.FC = () => {
                         ...values,
                         detectClosedAuthWindow
                     });
-                } else if (provider.auth_mode === 'OAUTH2_MANUAL') {
-                    const errorMsg = 'This integration uses a manual OAuth flow and must be connected via the Nango API.';
-                    setError(errorMsg);
-                    triggerError('unknown_error', errorMsg);
-                    return;
                 } else {
                     res = await nango.auth(integration.unique_key, {
                         params: values['params'] || {},
@@ -491,6 +487,40 @@ export const Go: React.FC = () => {
                         </Button>
                     </div>
                 </main>
+                {docsConnectUrl && (
+                    <footer>
+                        <p className="text-text-tertiary text-center">
+                            {t('common.needHelp')}{' '}
+                            <Link className="underline text-text-primary" target="_blank" to={docsConnectUrl} onClick={() => telemetry('click:doc')}>
+                                {t('common.viewGuide')}
+                            </Link>{' '}
+                            <ExternalLink className="inline-block w-3.5 h-3.5 text-text-tertiary" />
+                        </p>
+                    </footer>
+                )}
+            </div>
+        );
+    }
+
+    if (provider.auth_mode === 'OAUTH2_MANUAL') {
+        return (
+            <div className="flex-1 flex flex-col justify-center gap-5 data-hasDocs:justify-between" data-hasDocs={!!docsConnectUrl}>
+                <HeaderButtons
+                    backLink={!isSingleIntegration ? '/integrations' : undefined}
+                    isAuthLink={isAuthLink}
+                    onClickBack={() => {
+                        setIsDirty(false);
+                    }}
+                />
+                <ManualOAuth
+                    displayName={displayName}
+                    integrationKey={integration.unique_key}
+                    logo={integration.logo}
+                    onResult={(res) => {
+                        setResult(res);
+                        triggerConnection(res);
+                    }}
+                />
                 {docsConnectUrl && (
                     <footer>
                         <p className="text-text-tertiary text-center">
