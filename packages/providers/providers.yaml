@@ -4033,6 +4033,11 @@ claude-code:
     authorization_params:
         response_type: code
         code: 'true'
+    token_response_metadata:
+        - account.email_address
+        - account.uuid
+        - organization.uuid
+        - organization.name
     proxy:
         base_url: https://api.anthropic.com
     docs: https://nango.dev/docs/integrations/all/claude-code

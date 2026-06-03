@@ -26,6 +26,16 @@ function errorMessage(err: unknown, fallback: string): string {
     return fallback;
 }
 
+const POPUP_NAME = 'nango-manual-oauth';
+
+function popupFeatures(): string {
+    const width = 500;
+    const height = 700;
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+    return `popup=yes,width=${width},height=${height},left=${left},top=${top}`;
+}
+
 export const ManualOAuth: React.FC<ManualOAuthProps> = ({ integrationKey, displayName, logo, onResult }) => {
     const nango = useNango();
 
@@ -41,12 +51,24 @@ export const ManualOAuth: React.FC<ManualOAuthProps> = ({ integrationKey, displa
         }
         setLoading(true);
         setError(null);
+
+        // Open the popup synchronously inside the click handler; browsers block window.open after an await.
+        const popup = window.open('', POPUP_NAME, popupFeatures());
+
         try {
             const res = await nango.manualOAuthStart(integrationKey);
             setAuthorizationUrl(res.authorizationUrl);
-            window.open(res.authorizationUrl, '_blank', 'noopener,noreferrer');
+            if (popup && !popup.closed) {
+                popup.location.href = res.authorizationUrl;
+                popup.focus();
+            } else {
+                window.open(res.authorizationUrl, POPUP_NAME, popupFeatures());
+            }
             setPhase('awaiting_code');
         } catch (err) {
+            if (popup && !popup.closed) {
+                popup.close();
+            }
             setError(errorMessage(err, 'Failed to start authorization'));
         } finally {
             setLoading(false);
@@ -88,7 +110,7 @@ export const ManualOAuth: React.FC<ManualOAuthProps> = ({ integrationKey, displa
             {phase === 'idle' ? (
                 <div className="flex flex-col gap-7">
                     <p className="text-center text-sm text-text-secondary">
-                        Click connect to authorize with {displayName}. A new tab opens — approve access, then copy the code {displayName} shows you and paste it
+                        Click connect to authorize with {displayName}. A popup opens — approve access, then copy the code {displayName} shows you and paste it
                         back here.
                     </p>
                     <Button className="w-full" loading={loading} size="lg" onClick={handleStart}>
@@ -97,17 +119,19 @@ export const ManualOAuth: React.FC<ManualOAuthProps> = ({ integrationKey, displa
                 </div>
             ) : (
                 <div className="flex flex-col gap-5">
-                    <p className="text-center text-sm text-text-secondary">Approve access in the tab that opened, then paste the authorization code below.</p>
+                    <p className="text-center text-sm text-text-secondary">
+                        {' '}
+                        Approve access in the popup that opened, then paste the authorization code below.
+                    </p>
                     {authorizationUrl && (
-                        <a
+                        <button
                             className="text-center text-sm underline text-text-primary inline-flex items-center justify-center gap-1"
-                            href={authorizationUrl}
-                            rel="noopener noreferrer"
-                            target="_blank"
+                            type="button"
+                            onClick={() => window.open(authorizationUrl, POPUP_NAME, popupFeatures())}
                         >
                             Reopen authorization page
                             <ExternalLink className="inline-block w-3.5 h-3.5" />
-                        </a>
+                        </button>
                     )}
                     <div className="bg-elevated p-5 flex flex-col gap-2">
                         <label className="text-xs font-semibold text-text-primary" htmlFor="manual-oauth-code">

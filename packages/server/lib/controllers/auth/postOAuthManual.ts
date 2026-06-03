@@ -12,6 +12,7 @@ import {
     connectionService,
     errorManager,
     getConnectionConfig,
+    getConnectionMetadata,
     getProvider,
     makeUrl,
     providerClientManager,
@@ -318,11 +319,13 @@ export const postPublicOAuthManualComplete = asyncWrapper<PostPublicOAuthManualC
             manualProvider as unknown as ProviderOAuth2
         ) as OAuth2Credentials;
 
+        const tokenMetadata = getConnectionMetadata(rawCredentials, manualProvider, 'token_response_metadata');
+
         const [updatedConnection] = await connectionService.upsertConnection({
             connectionId,
             providerConfigKey,
             parsedRawCredentials,
-            connectionConfig: oauthSession.connectionConfig,
+            connectionConfig: { ...oauthSession.connectionConfig, ...tokenMetadata },
             environmentId: environment.id,
             tags: connectSession?.tags
         });
