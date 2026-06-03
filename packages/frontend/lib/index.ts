@@ -447,6 +447,54 @@ export default class Nango {
         return res.json();
     }
 
+    public async deviceCodeStart(
+        providerConfigKey: string,
+        options?: ConnectionConfig
+    ): Promise<{ userCode: string; verificationUri: string; interval: number; state: string; connectionId: string }> {
+        this.ensureCredentials();
+
+        const url = this.hostBaseUrl + `/oauth/device/${providerConfigKey}/start${this.toQueryString(null, options)}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}'
+        });
+
+        if (!res.ok) {
+            const errorResponse = await res.json();
+            throw new AuthError(errorResponse.error.message, errorResponse.error.code);
+        }
+
+        return res.json();
+    }
+
+    public async deviceCodePoll(
+        providerConfigKey: string,
+        state: string,
+        options?: ConnectionConfig
+    ): Promise<{ status: 'pending' } | ({ status: 'complete' } & AuthSuccess)> {
+        this.ensureCredentials();
+
+        const url = this.hostBaseUrl + `/oauth/device/${providerConfigKey}/poll${this.toQueryString(null, options)}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state })
+        });
+
+        // The poll endpoint replies 202 while the user has not yet approved; this is a retryable state, not an error.
+        if (res.status === 202) {
+            return { status: 'pending' };
+        }
+
+        if (!res.ok) {
+            const errorResponse = await res.json();
+            throw new AuthError(errorResponse.error.message, errorResponse.error.code);
+        }
+
+        return { status: 'complete', ...(await res.json()) };
+    }
+
     private async triggerAuth({
         authUrl,
         credentials,

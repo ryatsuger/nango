@@ -146,6 +146,38 @@ export type PostPublicOAuthManualComplete = Endpoint<{
     Success: ConnectionResponseSuccess;
 }>;
 
+export type PostPublicOAuthDeviceStart = Endpoint<{
+    Method: 'POST';
+    Body: Record<string, never>;
+    Querystring: ConnectionQueryString;
+    Params: {
+        providerConfigKey: string;
+    };
+    Path: '/oauth/device/:providerConfigKey/start';
+    Error: AuthErrors;
+    Success: {
+        userCode: string;
+        verificationUri: string;
+        interval: number;
+        state: string;
+        connectionId: string;
+    };
+}>;
+
+export type PostPublicOAuthDevicePoll = Endpoint<{
+    Method: 'POST';
+    Body: {
+        state: string;
+    };
+    Querystring: ConnectionQueryString;
+    Params: {
+        providerConfigKey: string;
+    };
+    Path: '/oauth/device/:providerConfigKey/poll';
+    Error: AuthErrors | ApiError<'invalid_state'> | ApiError<'authorization_pending'> | ApiError<'token_exchange_failed'>;
+    Success: ConnectionResponseSuccess;
+}>;
+
 export type PostPublicJwtAuthorization = Endpoint<{
     Method: 'POST';
     Body: Record<string, any>;

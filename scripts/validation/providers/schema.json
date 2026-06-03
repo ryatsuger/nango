@@ -46,6 +46,7 @@
                         "OAUTH2",
                         "OAUTH2_CC",
                         "OAUTH2_MANUAL",
+                        "OAUTH2_DEVICE_CODE",
                         "CUSTOM",
                         "TBA",
                         "TABLEAU",
@@ -383,6 +384,15 @@
                     }
                 },
                 "redirect_uri": {
+                    "type": "string"
+                },
+                "device_authorization_url": {
+                    "type": "string"
+                },
+                "device_token_poll_url": {
+                    "type": "string"
+                },
+                "verification_uri": {
                     "type": "string"
                 },
                 "redirect_uri_metadata": {

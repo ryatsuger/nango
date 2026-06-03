@@ -1,0 +1,41 @@
+---
+title: Codex
+sidebarTitle: Codex
+---
+
+import Overview from "/snippets/overview.mdx"
+
+<Overview />
+
+## Access requirements
+| Pre-Requisites    | Status         | Comment                                                                 |
+| ----------------- | -------------- | ----------------------------------------------------------------------- |
+| Paid dev account  | ✅ Not required | A ChatGPT Plus, Pro, or Business plan is used to authorize.            |
+| Paid test account | ✅ Not required |                                                                         |
+| Partnership       | ✅ Not required |                                                                         |
+| App review        | ✅ Not required |                                                                         |
+| Security audit    | ✅ Not required |                                                                         |
+
+
+## Setup guide
+
+Codex uses a public OAuth client with PKCE and a device-code flow. Nango requests a user code from OpenAI, you open the verification page and enter that code, then Nango polls until you approve and exchanges the result for tokens.
+
+<Tip>Need help getting started? Get help in the [community](https://nango.dev/slack).</Tip>
+
+
+## Useful links
+
+-   [OpenAI platform documentation](https://platform.openai.com/docs)
+
+## API gotchas
+
+-   This integration uses `auth_mode: OAUTH2_DEVICE_CODE`. The connection is created in two steps (`/oauth/device/{providerConfigKey}/start` then repeated `/oauth/device/{providerConfigKey}/poll`); there is no hosted callback.
+-   The OAuth client is public (no client secret). The fixed public `client_id` is supplied by the provider template.
+-   Proxy requests require the `ChatGPT-Account-Id` header. Nango extracts it from the `id_token` returned during authorization and stores it on the connection.
+
+## Going further
+
+<Card title="Connect to Codex" icon="link" href="/integrations/all/codex/connect" horizontal>
+  Guide to connect to Codex using the Nango API
+</Card>

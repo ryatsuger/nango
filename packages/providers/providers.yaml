@@ -4474,6 +4474,34 @@ codegen:
             example: 'sk-897bd628-de64-4018-8e3b-c6f717ca3e1d'
             doc_section: '#step-1-finding-your-api-key'
 
+codex:
+    display_name: Codex
+    categories:
+        - dev-tools
+    auth_mode: OAUTH2_DEVICE_CODE
+    device_authorization_url: https://auth.openai.com/api/accounts/deviceauth/usercode
+    device_token_poll_url: https://auth.openai.com/api/accounts/deviceauth/token
+    token_url: https://auth.openai.com/oauth/token
+    verification_uri: https://auth.openai.com/codex/device
+    redirect_uri: https://auth.openai.com/deviceauth/callback
+    default_oauth_client_id: app_EMoamEEZ73f0CkXaXp7hrann
+    default_scopes:
+        - openid
+        - profile
+        - email
+        - offline_access
+    scope_separator: ' '
+    token_response_metadata:
+        - chatgpt_account_id
+    proxy:
+        base_url: https://chatgpt.com/backend-api/codex
+        headers:
+            authorization: Bearer ${accessToken}
+            chatgpt-account-id: ${connectionConfig.chatgpt_account_id}
+            originator: codex_cli_rs
+    docs: https://nango.dev/docs/integrations/all/codex
+    docs_connect: https://nango.dev/docs/integrations/all/codex/connect
+
 commercetools:
     display_name: Commercetools
     categories:

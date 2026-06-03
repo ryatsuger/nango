@@ -10,6 +10,7 @@ import * as z from 'zod';
 import { AuthError } from '@nangohq/frontend';
 
 import { CustomInput } from '@/components/CustomInput';
+import { DeviceCode } from '@/components/DeviceCode';
 import { HeaderButtons } from '@/components/HeaderButtons';
 import { ManualOAuth } from '@/components/ManualOAuth';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ const formSchema: Record<AuthModeType, z.ZodObject> = {
     OAUTH1: z.object({}),
     OAUTH2: z.object({}),
     OAUTH2_MANUAL: z.object({}),
+    OAUTH2_DEVICE_CODE: z.object({}),
     OAUTH2_CC: z.object({
         client_id: z.string().min(1),
         client_secret: z.string().min(1),
@@ -513,6 +515,40 @@ export const Go: React.FC = () => {
                     }}
                 />
                 <ManualOAuth
+                    displayName={displayName}
+                    integrationKey={integration.unique_key}
+                    logo={integration.logo}
+                    onResult={(res) => {
+                        setResult(res);
+                        triggerConnection(res);
+                    }}
+                />
+                {docsConnectUrl && (
+                    <footer>
+                        <p className="text-text-tertiary text-center">
+                            {t('common.needHelp')}{' '}
+                            <Link className="underline text-text-primary" target="_blank" to={docsConnectUrl} onClick={() => telemetry('click:doc')}>
+                                {t('common.viewGuide')}
+                            </Link>{' '}
+                            <ExternalLink className="inline-block w-3.5 h-3.5 text-text-tertiary" />
+                        </p>
+                    </footer>
+                )}
+            </div>
+        );
+    }
+
+    if (provider.auth_mode === 'OAUTH2_DEVICE_CODE') {
+        return (
+            <div className="flex-1 flex flex-col justify-center gap-5 data-hasDocs:justify-between" data-hasDocs={!!docsConnectUrl}>
+                <HeaderButtons
+                    backLink={!isSingleIntegration ? '/integrations' : undefined}
+                    isAuthLink={isAuthLink}
+                    onClickBack={() => {
+                        setIsDirty(false);
+                    }}
+                />
+                <DeviceCode
                     displayName={displayName}
                     integrationKey={integration.unique_key}
                     logo={integration.logo}

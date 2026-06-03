@@ -1,0 +1,37 @@
+---
+title: Codex - How do I link my account?
+sidebarTitle: Codex
+---
+
+# Overview
+
+Codex uses a public OAuth client with PKCE and a device-code flow. There is no hosted callback, so the connection is created by starting authorization and then polling until you approve it.
+
+### Prerequisites:
+
+- A ChatGPT Plus, Pro, or Business plan.
+
+### Step 1: Start the device authorization
+
+Call the start endpoint to request a user code:
+
+```
+POST /oauth/device/{providerConfigKey}/start
+```
+
+The response contains a `userCode`, a `verificationUri`, a poll `interval`, and a `state`.
+
+### Step 2: Enter the code
+
+Open the `verificationUri` in your browser, enter the `userCode`, and approve access.
+
+### Step 3: Poll until complete
+
+Submit the `state` to the poll endpoint on the returned `interval`:
+
+```
+POST /oauth/device/{providerConfigKey}/poll
+{ "state": "<state>" }
+```
+
+The endpoint returns `202` while authorization is still pending. Once you approve, Nango exchanges the code for tokens and stores the connection. Tokens are refreshed automatically.

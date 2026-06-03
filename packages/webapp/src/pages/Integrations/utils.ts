@@ -11,6 +11,7 @@ const displayNames: Record<AuthModeType, string> = {
     OAUTH1: 'OAuth 1',
     OAUTH2: 'OAuth 2',
     OAUTH2_MANUAL: 'OAuth 2 (Manual)',
+    OAUTH2_DEVICE_CODE: 'OAuth 2 (Device Code)',
     OAUTH2_CC: 'OAuth2 Client Credentials',
     APP: 'App',
     APP_STORE: 'App Store',

@@ -5,6 +5,7 @@ export interface AuthModes {
     OAuth2: 'OAUTH2';
     OAuth2CC: 'OAUTH2_CC';
     OAuth2Manual: 'OAUTH2_MANUAL';
+    OAuth2DeviceCode: 'OAUTH2_DEVICE_CODE';
     Basic: 'BASIC';
     ApiKey: 'API_KEY';
     AppStore: 'APP_STORE';

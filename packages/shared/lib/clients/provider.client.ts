@@ -58,6 +58,7 @@ class ProviderClient {
             case 'absorb-lms':
             case 'posthog-oauth':
             case 'claude-code':
+            case 'codex':
                 return true;
             default:
                 return false;
@@ -145,6 +146,8 @@ class ProviderClient {
                 return this.createPosthogOauthToken(tokenUrl, code, config.oauth_client_id, callBackUrl, codeVerifier);
             case 'claude-code':
                 return this.createClaudeCodeToken(tokenUrl, code, config.oauth_client_id, callBackUrl, codeVerifier, connectionConfig?.['oauth_state']);
+            case 'codex':
+                return this.createCodexToken(tokenUrl, code, config.oauth_client_id, callBackUrl, codeVerifier);
             default:
                 throw new NangoError('unknown_provider_client');
         }
@@ -261,6 +264,8 @@ class ProviderClient {
                 return this.refreshPosthogOauthToken(interpolatedTokenUrl.href, credentials.refresh_token!, config.oauth_client_id);
             case 'claude-code':
                 return this.refreshClaudeCodeToken(interpolatedTokenUrl.href, credentials.refresh_token!, config.oauth_client_id);
+            case 'codex':
+                return this.refreshCodexToken(interpolatedTokenUrl.href, credentials.refresh_token!, config.oauth_client_id);
             default:
                 throw new NangoError('unknown_provider_client');
         }
@@ -1427,6 +1432,94 @@ class ProviderClient {
             throw new NangoError('claude_code_refresh_token_request_error');
         } catch (err: any) {
             throw new NangoError('claude_code_refresh_token_request_error', stringifyError(err));
+        }
+    }
+
+    private async createCodexToken(
+        tokenUrl: string,
+        code: string,
+        client_id: string,
+        redirect_uri: string,
+        code_verifier: string
+    ): Promise<AuthorizationTokenResponse> {
+        try {
+            const body = {
+                grant_type: 'authorization_code',
+                code,
+                client_id,
+                redirect_uri,
+                code_verifier
+            };
+
+            const headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            };
+
+            const response = await axios.post(tokenUrl, qs.stringify(body), { headers });
+
+            if (response.status === 200 && response.data) {
+                const accountId = this.extractCodexAccountId(response.data);
+                // The account id is mandatory for the Codex proxy header; a connection without it cannot make API calls.
+                if (!accountId.chatgpt_account_id) {
+                    throw new NangoError('codex_token_request_error', 'Codex token response did not contain a chatgpt_account_id');
+                }
+                return {
+                    ...response.data,
+                    ...accountId
+                };
+            }
+
+            throw new NangoError('codex_token_request_error');
+        } catch (err: any) {
+            throw new NangoError('codex_token_request_error', stringifyError(err));
+        }
+    }
+
+    private async refreshCodexToken(tokenUrl: string, refreshToken: string, client_id: string): Promise<RefreshTokenResponse> {
+        try {
+            const body = {
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                client_id
+            };
+
+            const headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            };
+
+            const response = await axios.post(tokenUrl, qs.stringify(body), { headers });
+
+            if (response.status === 200 && response.data) {
+                return {
+                    ...response.data,
+                    ...this.extractCodexAccountId(response.data)
+                };
+            }
+            throw new NangoError('codex_refresh_token_request_error');
+        } catch (err: any) {
+            throw new NangoError('codex_refresh_token_request_error', stringifyError(err));
+        }
+    }
+
+    // The ChatGPT account id is only available inside the id_token JWT claims and is required as a request header for Codex API calls.
+    private extractCodexAccountId(data: Record<string, any>): { chatgpt_account_id?: string } {
+        const idToken = data['id_token'];
+        if (typeof idToken !== 'string') {
+            return {};
+        }
+
+        const payload = idToken.split('.')[1];
+        if (!payload) {
+            return {};
+        }
+
+        try {
+            const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+            const authClaims = claims['https://api.openai.com/auth'];
+            const accountId = authClaims?.['chatgpt_account_id'] ?? claims['chatgpt_account_id'];
+            return typeof accountId === 'string' ? { chatgpt_account_id: accountId } : {};
+        } catch {
+            return {};
         }
     }
 

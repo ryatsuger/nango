@@ -123,6 +123,15 @@ export interface ProviderOAuth2Manual extends Omit<ProviderOAuth2, 'auth_mode'> 
     redirect_uri: string;
 }
 
+export interface ProviderOAuth2DeviceCode extends Omit<ProviderOAuth2, 'auth_mode'> {
+    auth_mode: 'OAUTH2_DEVICE_CODE';
+
+    device_authorization_url: string;
+    device_token_poll_url: string;
+    verification_uri: string;
+    redirect_uri: string;
+}
+
 export interface ProviderOAuth1 extends BaseProvider {
     auth_mode: 'OAUTH1';
 
@@ -274,6 +283,7 @@ export type Provider =
     | ProviderOAuth1
     | ProviderOAuth2
     | ProviderOAuth2Manual
+    | ProviderOAuth2DeviceCode
     | ProviderJwt
     | ProviderTwoStep
     | ProviderSignature
@@ -286,5 +296,12 @@ export type Provider =
     | ProviderMcpOAuth2Generic
     | ProviderInstallPlugin;
 
-export type RefreshableProvider = ProviderTwoStep | ProviderJwt | ProviderSignature | ProviderOAuth2 | ProviderOAuth2Manual | ProviderMcpOAuth2Generic; // TODO: fix this type
+export type RefreshableProvider =
+    | ProviderTwoStep
+    | ProviderJwt
+    | ProviderSignature
+    | ProviderOAuth2
+    | ProviderOAuth2Manual
+    | ProviderOAuth2DeviceCode
+    | ProviderMcpOAuth2Generic; // TODO: fix this type
 export type TestableProvider = ProviderApiKey; // TODO: fix this type
