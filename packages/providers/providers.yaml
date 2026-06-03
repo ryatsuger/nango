@@ -4040,6 +4040,10 @@ claude-code:
         - organization.name
     proxy:
         base_url: https://api.anthropic.com
+        headers:
+            anthropic-version: '2023-06-01'
+            anthropic-beta: oauth-2025-04-20
+            user-agent: claude-cli/2.1.161 (external, cli)
     docs: https://nango.dev/docs/integrations/all/claude-code
     docs_connect: https://nango.dev/docs/integrations/all/claude-code/connect
 
