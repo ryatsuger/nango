@@ -1484,10 +1484,10 @@ class ProviderClient {
             };
 
             const headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             };
 
-            const response = await axios.post(tokenUrl, qs.stringify(body), { headers });
+            const response = await axios.post(tokenUrl, body, { headers });
 
             if (response.status === 200 && response.data) {
                 return {
