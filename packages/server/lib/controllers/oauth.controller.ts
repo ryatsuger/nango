@@ -340,6 +340,394 @@ class OAuthController {
         }
     }
 
+    public async oauth2HeadlessStart(req: Request, res: Response<any, Required<RequestLocals>>, _next: NextFunction): Promise<void> {
+        const { account, environment, connectSession } = res.locals;
+        const environmentId = environment.id;
+        const { providerConfigKey } = req.params;
+        const receivedConnectionId = req.query['connection_id'] as string | undefined;
+        let connectionId = receivedConnectionId || connectionService.generateConnectionId();
+        let userScope = req.query['user_scope'] as string | undefined;
+        const isConnectSession = res.locals['authType'] === 'connectSession';
+
+        if (isConnectSession && receivedConnectionId) {
+            errorRestrictConnectionId(res);
+            return;
+        }
+
+        let logCtx: LogContext | undefined;
+        let config: ProviderConfig | null = null;
+
+        try {
+            logCtx =
+                isConnectSession && connectSession.operationId
+                    ? logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                    : await logContextGetter.create(
+                          {
+                              operation: { type: 'auth', action: 'create_connection' },
+                              meta: { authType: 'oauth2_headless', connectSession: endUserToMeta(res.locals.endUser) },
+                              expiresAt: defaultOperationExpiration.auth()
+                          },
+                          { account, environment }
+                      );
+
+            const callbackUrl = await environmentService.getOauthCallbackUrl(environmentId);
+            const connectionConfig = req.query['params'] != null ? getConnectionConfig(req.query['params']) : {};
+            let authorizationParams = req.query['authorization_params'] != null ? getAdditionalAuthorizationParams(req.query['authorization_params']) : {};
+            const overrideCredentials = req.query['credentials'] != null ? getAdditionalAuthorizationParams(req.query['credentials']) : {};
+
+            if (providerConfigKey == null) {
+                const error = WSErrBuilder.MissingProviderConfigKey();
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                return;
+            }
+
+            if (environment.hmac_enabled && !isConnectSession) {
+                const hmac = req.query['hmac'] as string | undefined;
+                if (!hmac) {
+                    const error = WSErrBuilder.MissingHmac();
+                    void logCtx.error(error.message);
+                    await logCtx.failed();
+                    this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                    return;
+                }
+
+                const verified = hmacService.verify({ receivedDigest: hmac, environment, values: [providerConfigKey, receivedConnectionId] });
+                if (!verified) {
+                    const error = WSErrBuilder.InvalidHmac();
+                    void logCtx.error(error.message);
+                    await logCtx.failed();
+                    this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                    return;
+                }
+            }
+
+            void logCtx.info('OAuth2 headless authorization URL request from the client');
+
+            config = await configService.getProviderConfig(providerConfigKey, environmentId);
+            if (config == null) {
+                const error = WSErrBuilder.UnknownProviderConfigKey(providerConfigKey);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 404, error.type, error.message);
+                return;
+            }
+
+            await logCtx.enrichOperation({ integrationId: config.id!, integrationName: config.unique_key, providerName: config.provider });
+
+            const provider = getProvider(config.provider);
+            if (!provider) {
+                const error = WSErrBuilder.UnknownProviderTemplate(config.provider);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 404, error.type, error.message);
+                return;
+            }
+
+            if (provider.auth_mode !== 'OAUTH2' || provider.installation === 'outbound') {
+                void logCtx.error('Provider does not support headless OAuth2', { provider: config.provider, authMode: provider.auth_mode });
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, 'unsupported_auth_mode');
+                return;
+            }
+
+            if (!(await isIntegrationAllowed({ config, res, logCtx }))) {
+                return;
+            }
+
+            if (isConnectSession) {
+                const defaults = connectSession.integrationsConfigDefaults?.[config.unique_key];
+                userScope = defaults?.user_scopes || undefined;
+
+                if (connectSession.connectionId) {
+                    const connection = await connectionService.getConnectionById(connectSession.connectionId);
+                    if (!connection) {
+                        void logCtx.error('Invalid connection');
+                        await logCtx.failed();
+                        res.status(400).json({ error: { code: 'invalid_connection' } });
+                        return;
+                    }
+                    connectionId = connection.connection_id;
+                }
+                if (defaults?.authorization_params) {
+                    authorizationParams = defaults.authorization_params;
+                }
+
+                if (defaults?.connectionConfig) {
+                    Object.assign(connectionConfig, defaults.connectionConfig);
+                }
+            }
+
+            const session: OAuthSession = {
+                providerConfigKey,
+                provider: config.provider,
+                connectionId,
+                callbackUrl,
+                authMode: provider.auth_mode,
+                codeVerifier: crypto.randomBytes(24).toString('hex'),
+                id: uuid.v1(),
+                connectSessionId: connectSession ? connectSession.id : null,
+                connectionConfig,
+                environmentId,
+                webSocketClientId: undefined,
+                activityLogId: logCtx.id,
+                requestTokenSecret: null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            };
+
+            if (userScope) {
+                session.connectionConfig['user_scope'] = userScope;
+            }
+
+            if (overrideCredentials && (overrideCredentials['oauth_client_id_override'] || overrideCredentials['oauth_client_secret_override'])) {
+                if (overrideCredentials['oauth_client_id_override']) {
+                    config.oauth_client_id = overrideCredentials['oauth_client_id_override'];
+                    session.connectionConfig = { ...session.connectionConfig, oauth_client_id_override: config.oauth_client_id };
+                }
+                if (overrideCredentials['oauth_client_secret_override']) {
+                    config.oauth_client_secret = overrideCredentials['oauth_client_secret_override'];
+                    session.connectionConfig = { ...session.connectionConfig, oauth_client_secret_override: config.oauth_client_secret };
+                }
+
+                if (overrideCredentials['oauth_refresh_token_override']) {
+                    session.connectionConfig = {
+                        ...session.connectionConfig,
+                        oauth_refresh_token_override: overrideCredentials['oauth_refresh_token_override']
+                    };
+                }
+
+                const obfuscatedClientSecret = config.oauth_client_secret ? config.oauth_client_secret.slice(0, 4) + '***' : '';
+
+                void logCtx.info('Credentials override', {
+                    oauth_client_id: config.oauth_client_id,
+                    oauth_client_secret: obfuscatedClientSecret
+                });
+            }
+
+            if (isConnectSession) {
+                const defaults = connectSession.integrationsConfigDefaults?.[config.unique_key];
+                if (defaults?.connectionConfig?.oauth_scopes_override) {
+                    config.oauth_scopes = defaults.connectionConfig.oauth_scopes_override;
+                }
+            } else if (connectionConfig['oauth_scopes_override']) {
+                config.oauth_scopes = connectionConfig['oauth_scopes_override'];
+            }
+
+            if (config.oauth_client_id == null || config.oauth_client_secret == null) {
+                const error = WSErrBuilder.InvalidProviderConfig(providerConfigKey);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                return;
+            }
+
+            const interpolationError = this.getOAuth2InterpolationError(provider as ProviderOAuth2, connectionConfig);
+            if (interpolationError) {
+                void logCtx.error(interpolationError.message, { connectionConfig });
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, interpolationError.type, interpolationError.message);
+                return;
+            }
+
+            if (provider.token_params?.grant_type && provider.token_params.grant_type !== 'authorization_code') {
+                const error = WSErrBuilder.UnknownGrantType(provider.token_params.grant_type);
+                void logCtx.error('OAuth2 headless unsupported grant type', { grantType: provider.token_params.grant_type, connectionConfig });
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                return;
+            }
+
+            await oAuthSessionService.create(session);
+
+            const authorizationUrl = this.buildOAuth2AuthorizationUrl({
+                provider: provider as ProviderOAuth2,
+                providerConfig: config,
+                session,
+                connectionConfig,
+                authorizationParams,
+                callbackUrl,
+                userScope
+            });
+
+            void logCtx.info('OAuth2 headless authorization started', { authorizationUrl, providerConfigKey, connectionId, provider: config.provider });
+
+            res.cookie(`oauth2-${session.id}`, '1', {
+                maxAge: 60 * 60 * 1000,
+                secure: req.secure,
+                httpOnly: true,
+                sameSite: req.secure ? 'none' : 'lax'
+            });
+
+            res.status(200).json({ authorizationUrl, state: session.id, connectionId, providerConfigKey });
+        } catch (err) {
+            const prettyError = stringifyError(err, { pretty: true });
+            if (logCtx) {
+                void logCtx.error('Error during OAuth2 headless start', { error: err });
+                await logCtx.failed();
+            }
+
+            errorManager.report(err, {
+                source: ErrorSourceEnum.PLATFORM,
+                operation: LogActionEnum.AUTH,
+                environmentId,
+                metadata: { providerConfigKey, connectionId }
+            });
+
+            metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'OAUTH2', ...(config ? { provider: config.provider } : {}) });
+            this.sendHeadlessOAuth2Error(res, 500, 'unknown_err', prettyError);
+            return;
+        }
+    }
+
+    public async oauth2HeadlessComplete(req: Request, res: Response<any, Required<RequestLocals>>, _next: NextFunction): Promise<void> {
+        const { providerConfigKey } = req.params;
+        let parsed: { state: string | undefined; query: Record<string, string | undefined> };
+
+        try {
+            parsed = this.parseHeadlessOAuth2CompleteBody(req.body);
+        } catch {
+            res.status(400).json({ error: { code: 'invalid_body', message: 'Invalid authorization_response' } });
+            return;
+        }
+
+        if (!parsed.state) {
+            res.status(400).json({ error: { code: 'invalid_body', message: 'Missing state' } });
+            return;
+        }
+
+        const state = parsed.state;
+        let session: OAuthSession | null | undefined;
+        let logCtx: LogContext | undefined;
+        let config: ProviderConfig | null = null;
+
+        try {
+            session = await oAuthSessionService.findById(state);
+            if (!session || session.providerConfigKey !== providerConfigKey || session.authMode !== 'OAUTH2') {
+                res.status(400).json({ error: { code: 'invalid_state', message: 'Authorization session not found or expired' } });
+                return;
+            }
+
+            await oAuthSessionService.delete(state);
+
+            const accountRes = await accountService.getAccountContext({ environmentId: session.environmentId });
+            if (!accountRes) {
+                const error = WSErrBuilder.EnvironmentOrAccountNotFound();
+                this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                return;
+            }
+
+            const { environment, account } = accountRes;
+            logCtx = logContextGetter.get({ id: session.activityLogId, accountId: account.id });
+            void logCtx.debug('Received OAuth2 headless callback', { providerConfigKey, connectionId: session.connectionId });
+
+            const provider = getProvider(session.provider);
+            if (!provider) {
+                const error = WSErrBuilder.UnknownProviderTemplate(session.provider);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 404, error.type, error.message);
+                return;
+            }
+
+            if (provider.auth_mode !== 'OAUTH2') {
+                const error = WSErrBuilder.UnknownAuthMode(provider.auth_mode);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, 'unsupported_auth_mode', error.message);
+                return;
+            }
+
+            config = await configService.getProviderConfig(session.providerConfigKey, session.environmentId);
+            if (!config) {
+                const error = WSErrBuilder.UnknownProviderConfigKey(session.providerConfigKey);
+                void logCtx.error(error.message);
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 404, error.type, error.message);
+                return;
+            }
+
+            await logCtx.enrichOperation({ integrationId: config.id!, integrationName: config.unique_key, providerName: config.provider });
+
+            if (req.cookies?.[`oauth2-${session.id}`] !== '1') {
+                metrics.increment(metrics.Types.AUTH_CALLBACK_STATE_COOKIE_MISSING, 1, {
+                    account_id: account.id,
+                    auth_mode: session.authMode
+                });
+            }
+
+            const authCodeParam = (provider as ProviderOAuth2).authorization_code_param_in_callback || 'code';
+            const authorizationCode = parsed.query[authCodeParam];
+
+            if (!authorizationCode) {
+                const providerContext = WSErrBuilder.getProviderErrorContextFromQuery(parsed.query);
+                const error = WSErrBuilder.InvalidCallbackOAuth2(providerContext);
+                void logCtx.error(error.message, {
+                    config: {
+                        scopes: config.oauth_scopes,
+                        basicAuthEnabled: (provider as ProviderOAuth2).token_request_auth_method === 'basic',
+                        tokenParams: (provider as ProviderOAuth2).token_params as string
+                    },
+                    response: { queryParams: parsed.query }
+                });
+                await logCtx.failed();
+                this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                return;
+            }
+
+            if (session.connectionConfig['oauth_client_id_override']) {
+                config.oauth_client_id = session.connectionConfig['oauth_client_id_override'];
+            }
+
+            if (session.connectionConfig['oauth_client_secret_override']) {
+                config.oauth_client_secret = session.connectionConfig['oauth_client_secret_override'];
+            }
+
+            if (session.connectionConfig['oauth_scopes']) {
+                config.oauth_scopes = session.connectionConfig['oauth_scopes'];
+            }
+
+            const success = await this.handleTokenExchangeAndConnectionCreation(
+                provider as ProviderOAuth2,
+                config,
+                session,
+                authorizationCode,
+                parsed.query['installation_id'],
+                null,
+                environment,
+                account,
+                logCtx,
+                getConnectionMetadataFromCallbackRequest(parsed.query, provider),
+                undefined
+            );
+
+            if (!success) {
+                this.sendHeadlessOAuth2Error(res, 400, 'oauth2_callback_failed', 'Failed to complete OAuth2 authorization');
+                return;
+            }
+
+            res.status(200).json({ connectionId: session.connectionId, providerConfigKey: session.providerConfigKey });
+        } catch (err) {
+            const prettyError = stringifyError(err, { pretty: true });
+            if (logCtx) {
+                void logCtx.error('Error during OAuth2 headless completion', { error: err });
+                await logCtx.failed();
+            }
+
+            errorManager.report(err, {
+                source: ErrorSourceEnum.PLATFORM,
+                operation: LogActionEnum.AUTH,
+                environmentId: session?.environmentId,
+                metadata: { providerConfigKey, connectionId: session?.connectionId }
+            });
+
+            metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'OAUTH2', ...(config ? { provider: config.provider } : {}) });
+            this.sendHeadlessOAuth2Error(res, 500, 'unknown_err', prettyError);
+            return;
+        }
+    }
+
     public async oauth2RequestCC(req: Request, res: Response<any, Required<RequestLocals>>, next: NextFunction) {
         const { environment, account, connectSession } = res.locals;
         const { providerConfigKey } = req.params;
@@ -651,90 +1039,26 @@ class OAuthController {
                 provider.token_params.grant_type == undefined ||
                 provider.token_params.grant_type == 'authorization_code'
             ) {
-                let allAuthParams: Record<string, string | undefined> = interpolateObjectValues(provider.authorization_params || {}, connectionConfig);
-
-                // We always implement PKCE, no matter whether the server requires it or not,
-                // unless it has been explicitly turned off for this template
-                if (!provider.disable_pkce) {
-                    const h = crypto
-                        .createHash('sha256')
-                        .update(session.codeVerifier!)
-                        .digest('base64')
-                        .replace(/\+/g, '-')
-                        .replace(/\//g, '_')
-                        .replace(/=+$/, '');
-                    allAuthParams['code_challenge'] = h;
-                    allAuthParams['code_challenge_method'] = 'S256';
-                }
-
-                if (providerConfig.provider === 'slack' && userScope) {
-                    allAuthParams['user_scope'] = userScope;
-                }
-
-                allAuthParams = { ...allAuthParams, ...authorizationParams }; // Auth params submitted in the request take precedence over the ones defined in the template (including if they are undefined).
-                // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-                Object.keys(allAuthParams).forEach((key) => (allAuthParams[key] === undefined ? delete allAuthParams[key] : {})); // Remove undefined values.
+                const allAuthParams = this.buildOAuth2AuthorizationParams({
+                    provider,
+                    providerConfig,
+                    session,
+                    connectionConfig,
+                    authorizationParams,
+                    userScope
+                });
 
                 await oAuthSessionService.create(session);
 
-                const simpleOAuthClient = new simpleOauth2.AuthorizationCode(
-                    oauth2Client.getSimpleOAuth2ClientConfig(providerConfig, provider, connectionConfig)
-                );
-
-                const scopeSeparator = provider.scope_separator || ' ';
-                const scopes = providerConfig.oauth_scopes ? providerConfig.oauth_scopes.split(',').join(scopeSeparator) : '';
-
-                let authorizationUri = simpleOAuthClient.authorizeURL({
-                    redirect_uri: callbackUrl,
-                    scope: scopes,
-                    state: session.id,
-                    ...allAuthParams
+                const authorizationUri = this.buildOAuth2AuthorizationUrl({
+                    provider,
+                    providerConfig,
+                    session,
+                    connectionConfig,
+                    authorizationParams,
+                    callbackUrl,
+                    userScope
                 });
-
-                if (provider?.authorization_url_skip_encode?.includes('scopes')) {
-                    const url = new URL(authorizationUri);
-                    const queryParams = new URLSearchParams(url.search);
-                    queryParams.delete('scope');
-                    let newQuery = queryParams.toString();
-                    if (scopes) {
-                        newQuery = newQuery ? `${newQuery}&scope=${scopes}` : `scope=${scopes}`;
-                    }
-                    url.search = newQuery;
-                    authorizationUri = url.toString();
-                }
-
-                if (provider.authorization_url_fragment) {
-                    const urlObj = new URL(authorizationUri);
-                    const { search } = urlObj;
-                    urlObj.search = '';
-
-                    authorizationUri = `${urlObj.toString()}#${provider.authorization_url_fragment}${search}`;
-                }
-
-                if (provider.authorization_url_replacements) {
-                    const urlReplacements = provider.authorization_url_replacements || {};
-
-                    Object.keys(provider.authorization_url_replacements).forEach((key) => {
-                        const replacement = urlReplacements[key];
-                        if (typeof replacement === 'string') {
-                            authorizationUri = authorizationUri.replace(key, replacement);
-                        }
-                    });
-                }
-
-                if (provider.authorization_url_skip_empty) {
-                    const url = new URL(authorizationUri);
-                    const queryParams = new URLSearchParams(url.search);
-                    // Remove any keys with undefined or empty string values
-                    for (const [key, value] of queryParams.entries()) {
-                        if (value === '') {
-                            queryParams.delete(key);
-                        }
-                    }
-
-                    url.search = queryParams.toString();
-                    authorizationUri = url.toString();
-                }
 
                 void logCtx.info('Redirecting', {
                     authorizationUri,
@@ -778,6 +1102,168 @@ class OAuthController {
 
             return publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError(prettyError));
         }
+    }
+
+    private buildOAuth2AuthorizationUrl({
+        provider,
+        providerConfig,
+        session,
+        connectionConfig,
+        authorizationParams,
+        callbackUrl,
+        userScope
+    }: {
+        provider: ProviderOAuth2;
+        providerConfig: ProviderConfig;
+        session: OAuthSession;
+        connectionConfig: Record<string, string>;
+        authorizationParams: Record<string, string | undefined>;
+        callbackUrl: string;
+        userScope?: string | undefined;
+    }): string {
+        const allAuthParams = this.buildOAuth2AuthorizationParams({ provider, providerConfig, session, connectionConfig, authorizationParams, userScope });
+        const simpleOAuthClient = new simpleOauth2.AuthorizationCode(oauth2Client.getSimpleOAuth2ClientConfig(providerConfig, provider, connectionConfig));
+
+        const scopeSeparator = provider.scope_separator || ' ';
+        const scopes = providerConfig.oauth_scopes ? providerConfig.oauth_scopes.split(',').join(scopeSeparator) : '';
+
+        let authorizationUri = simpleOAuthClient.authorizeURL({
+            redirect_uri: callbackUrl,
+            scope: scopes,
+            state: session.id,
+            ...allAuthParams
+        });
+
+        if (provider?.authorization_url_skip_encode?.includes('scopes')) {
+            const url = new URL(authorizationUri);
+            const queryParams = new URLSearchParams(url.search);
+            queryParams.delete('scope');
+            let newQuery = queryParams.toString();
+            if (scopes) {
+                newQuery = newQuery ? `${newQuery}&scope=${scopes}` : `scope=${scopes}`;
+            }
+            url.search = newQuery;
+            authorizationUri = url.toString();
+        }
+
+        if (provider.authorization_url_fragment) {
+            const urlObj = new URL(authorizationUri);
+            const { search } = urlObj;
+            urlObj.search = '';
+
+            authorizationUri = `${urlObj.toString()}#${provider.authorization_url_fragment}${search}`;
+        }
+
+        if (provider.authorization_url_replacements) {
+            const urlReplacements = provider.authorization_url_replacements || {};
+
+            Object.keys(provider.authorization_url_replacements).forEach((key) => {
+                const replacement = urlReplacements[key];
+                if (typeof replacement === 'string') {
+                    authorizationUri = authorizationUri.replace(key, replacement);
+                }
+            });
+        }
+
+        if (provider.authorization_url_skip_empty) {
+            const url = new URL(authorizationUri);
+            const queryParams = new URLSearchParams(url.search);
+            // Remove any keys with undefined or empty string values
+            for (const [key, value] of queryParams.entries()) {
+                if (value === '') {
+                    queryParams.delete(key);
+                }
+            }
+
+            url.search = queryParams.toString();
+            authorizationUri = url.toString();
+        }
+
+        return authorizationUri;
+    }
+
+    private buildOAuth2AuthorizationParams({
+        provider,
+        providerConfig,
+        session,
+        connectionConfig,
+        authorizationParams,
+        userScope
+    }: {
+        provider: ProviderOAuth2;
+        providerConfig: ProviderConfig;
+        session: OAuthSession;
+        connectionConfig: Record<string, string>;
+        authorizationParams: Record<string, string | undefined>;
+        userScope?: string | undefined;
+    }): Record<string, string | undefined> {
+        let allAuthParams: Record<string, string | undefined> = interpolateObjectValues(provider.authorization_params || {}, connectionConfig);
+
+        // We always implement PKCE, no matter whether the server requires it or not,
+        // unless it has been explicitly turned off for this template
+        if (!provider.disable_pkce) {
+            const h = crypto.createHash('sha256').update(session.codeVerifier!).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            allAuthParams['code_challenge'] = h;
+            allAuthParams['code_challenge_method'] = 'S256';
+        }
+
+        if (providerConfig.provider === 'slack' && userScope) {
+            allAuthParams['user_scope'] = userScope;
+        }
+
+        allAuthParams = { ...allAuthParams, ...authorizationParams }; // Auth params submitted in the request take precedence over the ones defined in the template (including if they are undefined).
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        Object.keys(allAuthParams).forEach((key) => (allAuthParams[key] === undefined ? delete allAuthParams[key] : {})); // Remove undefined values.
+
+        return allAuthParams;
+    }
+
+    private getOAuth2InterpolationError(provider: ProviderOAuth2, connectionConfig: Record<string, string>) {
+        const tokenUrl = typeof provider.token_url === 'string' ? provider.token_url : provider.token_url?.['OAUTH2'];
+
+        if (missesInterpolationParam(provider.authorization_url!, connectionConfig)) {
+            return WSErrBuilder.InvalidConnectionConfig(provider.authorization_url!, JSON.stringify(connectionConfig));
+        }
+
+        if (tokenUrl && missesInterpolationParam(tokenUrl, connectionConfig)) {
+            return WSErrBuilder.InvalidConnectionConfig(tokenUrl, JSON.stringify(connectionConfig));
+        }
+
+        if (provider.authorization_params && missesInterpolationParamInObject(provider.authorization_params, connectionConfig)) {
+            return WSErrBuilder.InvalidConnectionConfig('authorization_params', JSON.stringify(connectionConfig));
+        }
+
+        if (provider.token_params && missesInterpolationParamInObject(provider.token_params, connectionConfig)) {
+            return WSErrBuilder.InvalidConnectionConfig('token_params', JSON.stringify(connectionConfig));
+        }
+
+        return null;
+    }
+
+    private parseHeadlessOAuth2CompleteBody(body: any): { state: string | undefined; query: Record<string, string | undefined> } {
+        const query: Record<string, string | undefined> = {};
+
+        if (body?.authorization_response && typeof body.authorization_response === 'string') {
+            const authorizationResponse = body.authorization_response;
+            const search = authorizationResponse.includes('?')
+                ? new URL(authorizationResponse, 'https://nango.invalid').searchParams
+                : new URLSearchParams(authorizationResponse);
+            search.forEach((value, key) => {
+                query[key] = value;
+            });
+        }
+
+        for (const [key, value] of Object.entries(body || {})) {
+            if (key !== 'authorization_response' && typeof value === 'string') {
+                query[key] = value;
+            }
+        }
+
+        return { state: query['state'], query };
+    }
+
+    private sendHeadlessOAuth2Error(res: Response, status: number, code: string, message?: string) {
+        res.status(status).json({ error: { code, ...(message ? { message } : {}) } });
     }
 
     private async appRequest(
@@ -1360,7 +1846,7 @@ class OAuthController {
         environment: DBEnvironment,
         account: DBTeam,
         logCtx: LogContext
-    ) {
+    ): Promise<void> {
         const authCodeParam = provider.authorization_code_param_in_callback || 'code';
         const authorizationCode = req.query[authCodeParam] as string | undefined;
 
@@ -1459,7 +1945,8 @@ class OAuthController {
                 config
             );
 
-            return publisher.notifyErr(res, channel, providerConfigKey, connectionId, error);
+            await publisher.notifyErr(res, channel, providerConfigKey, connectionId, error);
+            return;
         }
 
         if (session.authMode === 'CUSTOM' && req.query['setup_action'] === 'update' && installationId) {
@@ -1487,7 +1974,7 @@ class OAuthController {
             config.oauth_scopes = session.connectionConfig['oauth_scopes'];
         }
 
-        return this.handleTokenExchangeAndConnectionCreation(
+        await this.handleTokenExchangeAndConnectionCreation(
             provider,
             config,
             session,
@@ -1500,6 +1987,7 @@ class OAuthController {
             callbackMetadata,
             undefined
         );
+        return;
     }
 
     public async oauth2WebhookInstallation(
@@ -1671,7 +2159,7 @@ class OAuthController {
                 if (res) {
                     await publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError());
                 }
-                return;
+                return false;
             }
 
             connectionConfig = {
@@ -1785,7 +2273,7 @@ class OAuthController {
                     if (res) {
                         await publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError('failed to get session'));
                     }
-                    return;
+                    return false;
                 }
                 connectSession = connectSessionRes.value;
             }
@@ -1807,7 +2295,7 @@ class OAuthController {
                 if (res) {
                     await publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError('failed to create connection'));
                 }
-                return;
+                return false;
             }
 
             const customValidationResponse = await validateConnection({
@@ -1832,7 +2320,7 @@ class OAuthController {
                 if (res) {
                     await publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.FailedCredentialsCheck(message));
                 }
-                return;
+                return false;
             }
 
             if (connectSession) {
@@ -1920,7 +2408,7 @@ class OAuthController {
                     if (res) {
                         await publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError('failed to create credentials'));
                     }
-                    return;
+                    return false;
                 }
             }
 
@@ -1937,7 +2425,7 @@ class OAuthController {
                     isPending: pending
                 });
             }
-            return;
+            return true;
         } catch (err) {
             const prettyError = stringifyError(err, { pretty: true });
             errorManager.report(err, {
@@ -1972,11 +2460,13 @@ class OAuthController {
             metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'OAUTH2', provider: config.provider });
 
             if (res) {
-                return publisher.notifyErr(res, channel, providerConfigKey, connectionId, {
+                await publisher.notifyErr(res, channel, providerConfigKey, connectionId, {
                     type: 'unknown_err',
                     message: prettyError
                 });
+                return false;
             }
+            return false;
         }
     }
 

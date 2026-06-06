@@ -171,6 +171,8 @@ publicAPI.route('/oauth/manual/:providerConfigKey/start').post(connectSessionOrP
 publicAPI.route('/oauth/manual/:providerConfigKey/complete').post(connectSessionOrPublicAuth, postPublicOAuthManualComplete);
 publicAPI.route('/oauth/device/:providerConfigKey/start').post(connectSessionOrPublicAuth, postPublicOAuthDeviceStart);
 publicAPI.route('/oauth/device/:providerConfigKey/poll').post(connectSessionOrPublicAuth, postPublicOAuthDevicePoll);
+publicAPI.route('/oauth2/headless/:providerConfigKey/start').post(connectSessionOrPublicAuth, oauthController.oauth2HeadlessStart.bind(oauthController));
+publicAPI.route('/oauth2/headless/:providerConfigKey/complete').post(connectSessionOrPublicAuth, oauthController.oauth2HeadlessComplete.bind(oauthController));
 publicAPI.route('/oauth2/auth/:providerConfigKey').post(connectSessionOrPublicAuth, oauthController.oauth2RequestCC.bind(oauthController));
 publicAPI.route('/auth/oauth-outbound/:providerConfigKey').post(connectSessionOrPublicAuth, postPublicOauthOutboundAuthorization);
 publicAPI.use('/api-auth', jsonContentTypeMiddleware);
