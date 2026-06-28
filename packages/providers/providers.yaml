@@ -12042,6 +12042,49 @@ microsoft-business-central:
             doc_section: '#step-2-finding-your-enrivonment-name'
             order: 2
 
+microsoft-dynamics-365:
+    display_name: Microsoft Dynamics 365
+    categories:
+        - crm
+    auth_mode: OAUTH2
+    authorization_url: https://login.microsoftonline.com/${connectionConfig.tenantId}/oauth2/v2.0/authorize
+    token_url: https://login.microsoftonline.com/${connectionConfig.tenantId}/oauth2/v2.0/token
+    authorization_params:
+        response_type: code
+        response_mode: query
+    token_params:
+        grant_type: authorization_code
+    refresh_params:
+        grant_type: refresh_token
+    # Dataverse uses a per-instance resource scope that depends on the connection's
+    # instanceUrl (e.g. https://{instanceUrl}/user_impersonation), which is not known
+    # at integration-creation time. Nango only interpolates ${connectionConfig.*} into
+    # token_params/authorization_url, NOT into the authorize-URL scope for OAUTH2
+    # (auth-code) providers — that scope comes from the integration's configured
+    # `oauth_scopes` (or default_scopes) verbatim. So the per-instance resource scope
+    # must be supplied as the integration's scopes at config-creation time (load.mjs),
+    # e.g. "https://org.crm.dynamics.com/user_impersonation offline_access".
+    default_scopes:
+        - offline_access
+    proxy:
+        base_url: https://${connectionConfig.instanceUrl}/api/data/v9.2
+    docs: https://nango.dev/docs/integrations/all/microsoft-dynamics-365
+    connection_config:
+        tenantId:
+            type: string
+            title: Azure AD Tenant ID
+            description: The Microsoft Entra (Azure AD) tenant that owns the Dynamics 365 app registration
+            format: uuid
+            example: a1b2c3d4-e5f6-47a8-9b0c-d1234567890f
+            order: 1
+        instanceUrl:
+            type: string
+            title: Dataverse Instance URL
+            description: The host of your Dynamics 365 / Dataverse environment, without the scheme
+            pattern: '^[a-zA-Z0-9.-]+\.dynamics\.com$'
+            example: org.crm.dynamics.com
+            order: 2
+
 microsoft-ads:
     display_name: Microsoft Ads
     alias: microsoft
@@ -19013,6 +19056,51 @@ stripe-api-key:
             example: acct_1aTnTtAAB0hHJ26p
             pattern: '^acct_[A-Za-z0-9]{16}(\/acct_[A-Za-z0-9]{16})?$'
             doc_section: '#step-2-finding-your-stripe-context'
+
+suger:
+    display_name: Suger (MCP)
+    categories:
+        - mcp
+        - other
+    auth_mode: MCP_OAUTH2
+    client_registration: static
+    # Suger runs per-environment OAuth and MCP hosts (prod: oauth.suger.cloud /
+    # apiv2.suger.cloud; dev/stag use the *.dev / *.stag equivalents). The hosts are
+    # templated from connectionConfig (auth0-style) so a single provider entry serves
+    # all environments. MCP_OAUTH2 interpolates ${connectionConfig.*} into the
+    # authorize/token URLs and proxy base_url. The fixed OAuth client "suger-console"
+    # must be supplied as the integration's oauth_client_id at config-creation time
+    # (client_registration: static).
+    authorization_url: https://${connectionConfig.oauthHost}/oauth2/authorize
+    token_url: https://${connectionConfig.oauthHost}/oauth2/token
+    authorization_params:
+        response_type: code
+    token_params:
+        grant_type: authorization_code
+    refresh_params:
+        grant_type: refresh_token
+    default_scopes:
+        - openid
+        - email
+        - offline_access
+    proxy:
+        base_url: https://${connectionConfig.mcpHost}
+    docs: https://nango.dev/docs/integrations/all/suger
+    connection_config:
+        oauthHost:
+            type: string
+            title: Suger OAuth Host
+            description: The host of Suger's OAuth service for your environment (no scheme)
+            pattern: '^[a-zA-Z0-9.-]+\.suger\.cloud$'
+            example: oauth.suger.cloud
+            order: 1
+        mcpHost:
+            type: string
+            title: Suger MCP Host
+            description: The host of Suger's MCP server for your environment (no scheme)
+            pattern: '^[a-zA-Z0-9.-]+\.suger\.cloud$'
+            example: apiv2.suger.cloud
+            order: 2
 
 supabase:
     display_name: Supabase

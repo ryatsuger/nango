@@ -1,0 +1,43 @@
+---
+title: Suger (MCP)
+sidebarTitle: Suger (MCP)
+---
+
+import Overview from "/snippets/overview.mdx"
+
+<Overview />
+
+## Access requirements
+| Pre-Requisites | Status | Comment|
+| - | - | - |
+| Paid dev account | ✅ Not required | Sign up for a [Suger account](https://www.suger.io). |
+| Paid test account | ✅ Not required | |
+| Partnership | ✅ Not required | |
+| App review | ✅ Not required | |
+| Security audit | ✅ Not required | |
+
+
+## Setup guide
+
+Suger exposes its marketplace data through a remote MCP server protected by its own
+OAuth service. The OAuth and MCP hosts are environment-specific:
+
+| Environment | OAuth Host (`oauthHost`) | MCP Host (`mcpHost`) |
+| - | - | - |
+| Production | `oauth.suger.cloud` | `apiv2.suger.cloud` |
+| Staging | `oauth.stag.suger.cloud` | `apiv2.stag.suger.cloud` |
+| Development | `oauth.dev.suger.cloud` | `apiv2.dev.suger.cloud` |
+
+Create the integration with the fixed OAuth client id `suger-console` (the provider uses
+`client_registration: static`), and supply the `oauthHost` and `mcpHost` connection
+configuration values for the environment you are connecting to.
+
+<Tip>Need help getting started? Get help in the [community](https://nango.dev/slack).</Tip>
+
+
+## Useful links
+
+| Topic     | Links |
+|----------|-------|
+| General  | [Suger website](https://www.suger.io) |
+| Developer | [Suger documentation](https://docs.suger.io) |
