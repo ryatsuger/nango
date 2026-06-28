@@ -12049,6 +12049,10 @@ microsoft-dynamics-365:
     auth_mode: OAUTH2
     authorization_url: https://login.microsoftonline.com/${connectionConfig.tenantId}/oauth2/v2.0/authorize
     token_url: https://login.microsoftonline.com/${connectionConfig.tenantId}/oauth2/v2.0/token
+    # Microsoft Entra confidential clients (Nango holds a client secret and exchanges the
+    # code server-side) authenticate with code + secret, matching the base `microsoft`
+    # provider which also disables PKCE on this endpoint.
+    disable_pkce: true
     authorization_params:
         response_type: code
         response_mode: query
@@ -12057,17 +12061,24 @@ microsoft-dynamics-365:
     refresh_params:
         grant_type: refresh_token
     # Dataverse uses a per-instance resource scope that depends on the connection's
-    # instanceUrl (e.g. https://{instanceUrl}/user_impersonation), which is not known
-    # at integration-creation time. Nango only interpolates ${connectionConfig.*} into
+    # instanceUrl (e.g. https://{instanceUrl}/.default), which is not known at
+    # integration-creation time. Nango only interpolates ${connectionConfig.*} into
     # token_params/authorization_url, NOT into the authorize-URL scope for OAUTH2
     # (auth-code) providers — that scope comes from the integration's configured
     # `oauth_scopes` (or default_scopes) verbatim. So the per-instance resource scope
-    # must be supplied as the integration's scopes at config-creation time (load.mjs),
-    # e.g. "https://org.crm.dynamics.com/user_impersonation offline_access".
+    # must be supplied as the integration's scopes at config-creation time (load.mjs).
+    # Microsoft's guidance: confidential clients use "<environment-url>/.default" (all
+    # statically-configured delegated permissions), e.g.
+    # "https://org.crm.dynamics.com/.default offline_access". (Public clients would use
+    # "<environment-url>/user_impersonation".)
     default_scopes:
         - offline_access
     proxy:
         base_url: https://${connectionConfig.instanceUrl}/api/data/v9.2
+        headers:
+            accept: application/json
+            odata-version: '4.0'
+            odata-maxversion: '4.0'
     docs: https://nango.dev/docs/integrations/all/microsoft-dynamics-365
     connection_config:
         tenantId:
@@ -19064,19 +19075,30 @@ suger:
         - other
     auth_mode: MCP_OAUTH2
     client_registration: static
-    # Suger runs per-environment OAuth and MCP hosts (prod: oauth.suger.cloud /
-    # apiv2.suger.cloud; dev/stag use the *.dev / *.stag equivalents). The hosts are
-    # templated from connectionConfig (auth0-style) so a single provider entry serves
-    # all environments. MCP_OAUTH2 interpolates ${connectionConfig.*} into the
-    # authorize/token URLs and proxy base_url. The fixed OAuth client "suger-console"
-    # must be supplied as the integration's oauth_client_id at config-creation time
-    # (client_registration: static).
-    authorization_url: https://${connectionConfig.oauthHost}/oauth2/authorize
-    token_url: https://${connectionConfig.oauthHost}/oauth2/token
+    # Suger's OAuth authorization server and MCP server are the SAME per-environment host:
+    # apiv2.{env}.suger.cloud (prod: apiv2.suger.cloud; dev/stag: apiv2.dev / apiv2.stag).
+    # Verified live against the RFC 8414 metadata at
+    # https://apiv2.dev.suger.cloud/.well-known/oauth-authorization-server (issuer,
+    # authorization_endpoint and token_endpoint all on apiv2.dev.suger.cloud) and the
+    # RFC 9728 protected-resource metadata at /.well-known/oauth-protected-resource
+    # (resource and authorization_servers both = https://apiv2.dev.suger.cloud). There is
+    # no separate oauth.*.suger.cloud host — it does not resolve in DNS. The host is
+    # templated from connectionConfig so one provider entry serves all environments;
+    # MCP_OAUTH2 uses these static endpoints (no metadata discovery). The fixed public
+    # client "suger-console" (token_endpoint_auth_method none, PKCE S256) must be supplied
+    # as the integration's oauth_client_id at config-creation time (client_registration:
+    # static).
+    authorization_url: https://${connectionConfig.host}/oauth2/authorize
+    token_url: https://${connectionConfig.host}/oauth2/token
     authorization_params:
         response_type: code
+        # RFC 8707 resource indicator — binds the issued token to the Suger MCP resource
+        # (the protected-resource id advertised at /.well-known/oauth-protected-resource,
+        # the bare host without the /mcp path).
+        resource: https://${connectionConfig.host}
     token_params:
         grant_type: authorization_code
+        resource: https://${connectionConfig.host}
     refresh_params:
         grant_type: refresh_token
     default_scopes:
@@ -19084,23 +19106,23 @@ suger:
         - email
         - offline_access
     proxy:
-        base_url: https://${connectionConfig.mcpHost}
+        # Suger serves the MCP endpoint at POST /mcp on the API host; the bare host 404s.
+        base_url: https://${connectionConfig.host}/mcp
+        headers:
+            # The MCP endpoint is served by the official MCP Go SDK StreamableHTTPHandler,
+            # which requires this Streamable HTTP content-negotiation header or returns 406.
+            accept: application/json,text/event-stream
     docs: https://nango.dev/docs/integrations/all/suger
     connection_config:
-        oauthHost:
+        host:
             type: string
-            title: Suger OAuth Host
-            description: The host of Suger's OAuth service for your environment (no scheme)
-            pattern: '^[a-zA-Z0-9.-]+\.suger\.cloud$'
-            example: oauth.suger.cloud
-            order: 1
-        mcpHost:
-            type: string
-            title: Suger MCP Host
-            description: The host of Suger's MCP server for your environment (no scheme)
-            pattern: '^[a-zA-Z0-9.-]+\.suger\.cloud$'
+            title: Suger API Host
+            description: "Your Suger environment's API host, without scheme (serves both OAuth and MCP). Production: apiv2.suger.cloud — Staging: apiv2.stag.suger.cloud — Development: apiv2.dev.suger.cloud"
+            # Restricted to the three known Suger environments (prod drops the env segment).
+            pattern: '^apiv2\.(dev\.|stag\.)?suger\.cloud$'
+            default_value: apiv2.suger.cloud
             example: apiv2.suger.cloud
-            order: 2
+            order: 1
 
 supabase:
     display_name: Supabase

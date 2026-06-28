@@ -19,18 +19,19 @@ import Overview from "/snippets/overview.mdx"
 
 ## Setup guide
 
-Suger exposes its marketplace data through a remote MCP server protected by its own
-OAuth service. The OAuth and MCP hosts are environment-specific:
+Suger exposes its marketplace data through a remote MCP server. The OAuth authorization
+server and the MCP server are the same per-environment API host:
 
-| Environment | OAuth Host (`oauthHost`) | MCP Host (`mcpHost`) |
-| - | - | - |
-| Production | `oauth.suger.cloud` | `apiv2.suger.cloud` |
-| Staging | `oauth.stag.suger.cloud` | `apiv2.stag.suger.cloud` |
-| Development | `oauth.dev.suger.cloud` | `apiv2.dev.suger.cloud` |
+| Environment | API host (`host`) |
+| - | - |
+| Production | `apiv2.suger.cloud` |
+| Staging | `apiv2.stag.suger.cloud` |
+| Development | `apiv2.dev.suger.cloud` |
 
-Create the integration with the fixed OAuth client id `suger-console` (the provider uses
-`client_registration: static`), and supply the `oauthHost` and `mcpHost` connection
-configuration values for the environment you are connecting to.
+The host serves both OAuth (`/oauth2/authorize`, `/oauth2/token`) and the MCP endpoint
+(`POST /mcp`). Create the integration with the fixed OAuth client id `suger-console` (the
+provider uses `client_registration: static`), and supply the `host` connection
+configuration value for the environment you are connecting to.
 
 <Tip>Need help getting started? Get help in the [community](https://nango.dev/slack).</Tip>
 
