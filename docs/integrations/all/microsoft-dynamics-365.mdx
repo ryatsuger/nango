@@ -1,0 +1,49 @@
+---
+title: Microsoft Dynamics 365
+sidebarTitle: Microsoft Dynamics 365
+---
+
+import Overview from "/snippets/overview.mdx"
+
+<Overview />
+
+## Access requirements
+| Pre-Requisites | Status | Comment|
+| - | - | - |
+| Paid dev account | ✅ Not required | Free, self-signup for a [Microsoft account](https://account.microsoft.com/account) and [Azure account](https://azure.microsoft.com/free). |
+| Paid test account | ⚠️ Conditional | A Dynamics 365 / Dataverse environment is required to test API calls. |
+| Partnership | ✅ Not required | |
+| App review | ✅ Not required | |
+| Security audit | ✅ Not required | |
+
+
+## Setup guide
+
+Dynamics 365 Customer Engagement (Dataverse) authenticates through Microsoft Entra
+(Azure AD) using the OAuth 2.0 authorization code flow.
+
+1. Register an application in the [Microsoft Entra admin center](https://entra.microsoft.com)
+   as a confidential client (web app with a client secret).
+2. Add the **Access Dynamics 365 as organization users** delegated permission (the
+   Dynamics CRM `user_impersonation` permission).
+3. Create the Nango integration and provide:
+   - `tenantId` — your Azure AD tenant id.
+   - `instanceUrl` — your Dataverse host, e.g. `org.crm.dynamics.com`.
+4. Configure the integration scopes with the per-instance resource scope. Because Nango
+   authenticates as a confidential client, Microsoft recommends the `.default` scope:
+   `https://org.crm.dynamics.com/.default offline_access`. Nango does not interpolate the
+   connection's `instanceUrl` into the authorize-URL scope, so this must be supplied as
+   the integration's scopes at configuration time.
+
+<Note>`.default` requests every delegated permission statically configured on the app registration. A public client (no secret) would instead use `https://org.crm.dynamics.com/user_impersonation`.</Note>
+
+<Tip>Need help getting started? Get help in the [community](https://nango.dev/slack).</Tip>
+
+
+## Useful links
+
+| Topic     | Links |
+|----------|-------|
+| General  | [Microsoft Entra admin center](https://entra.microsoft.com) |
+| Developer | [Dataverse Web API reference](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/overview) |
+|          | [Use OAuth with Dataverse](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/authenticate-oauth) |
