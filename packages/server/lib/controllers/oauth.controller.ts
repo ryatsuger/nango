@@ -1681,28 +1681,45 @@ class OAuthController {
         };
 
         let clientInformation: OAuthClientInformation;
-        if (metadata.registration_endpoint) {
-            clientInformation = await registerClient(mcpServerUrl, {
+        let resource: URL | undefined;
+        let authResult: Awaited<ReturnType<typeof startAuthorization>>;
+        try {
+            if (metadata.registration_endpoint) {
+                clientInformation = await registerClient(mcpServerUrl, {
+                    metadata,
+                    clientMetadata
+                });
+            } else {
+                clientInformation = {
+                    client_id: 'nango-client',
+                    ...clientMetadata
+                };
+            }
+
+            resource = resourceMetadata?.resource ? new URL(resourceMetadata.resource) : undefined;
+
+            authResult = await startAuthorization(mcpServerUrl, {
                 metadata,
-                clientMetadata
+                clientInformation,
+                redirectUrl: callbackUrl,
+                state: session.id,
+                scope: scopes || '',
+                ...(resource && { resource })
             });
-        } else {
-            clientInformation = {
-                client_id: 'nango-client',
-                ...clientMetadata
-            };
+        } catch (err) {
+            // Dynamic client registration (RFC 7591) or the authorize-URL build hit the
+            // remote provider and was rejected — e.g. an MCP server that gates DCR
+            // behind a manual allowlist (ClickUp returns "integration not allowlisted").
+            // Surface a clean 400 carrying the provider's own message instead of letting
+            // it bubble to the generic outer catch (which returns an opaque 500
+            // 'unknown_err' mislabeled as auth_mode 'OAUTH2').
+            const detail = err instanceof Error ? err.message : String(err);
+            void logCtx.error('MCP dynamic client registration / authorization failed', { error: err, mcpServerUrl });
+            await logCtx.failed();
+            metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'MCP_OAUTH2_GENERIC', provider: config.provider });
+            this.sendHeadlessOAuth2Error(res, 400, 'mcp_registration_failed', detail);
+            return;
         }
-
-        const resource = resourceMetadata?.resource ? new URL(resourceMetadata.resource) : undefined;
-
-        const authResult = await startAuthorization(mcpServerUrl, {
-            metadata,
-            clientInformation,
-            redirectUrl: callbackUrl,
-            state: session.id,
-            scope: scopes || '',
-            ...(resource && { resource })
-        });
 
         session.connectionConfig = {
             ...(session.connectionConfig || {}),

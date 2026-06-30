@@ -95,10 +95,15 @@ export async function discoverMcpMetadata(
             throw new Error('Failed to discover OAuth authorization server metadata');
         }
 
-        // Validate discovered OAuth endpoints for security
+        // Validate discovered OAuth endpoints for security. registration_endpoint
+        // MUST be included: registerClient() (RFC 7591 DCR) POSTs to it, and like the
+        // authorize/token endpoints it comes straight from the discovered (and thus
+        // attacker-influenceable) auth-server metadata document — without this it is
+        // an SSRF sink (localhost/private/link-local/non-HTTPS targets).
         const endpointsToValidate = [
             { name: 'authorization_endpoint', url: metadata.authorization_endpoint },
-            { name: 'token_endpoint', url: metadata.token_endpoint }
+            { name: 'token_endpoint', url: metadata.token_endpoint },
+            { name: 'registration_endpoint', url: metadata.registration_endpoint }
         ];
 
         // Also validate resource server endpoints if present
