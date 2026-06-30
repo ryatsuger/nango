@@ -425,7 +425,8 @@ class OAuthController {
                 return;
             }
 
-            if (provider.auth_mode !== 'OAUTH2' || provider.installation === 'outbound') {
+            const isMcpGeneric = provider.auth_mode === 'MCP_OAUTH2_GENERIC';
+            if ((provider.auth_mode !== 'OAUTH2' && !isMcpGeneric) || provider.installation === 'outbound') {
                 void logCtx.error('Provider does not support headless OAuth2', { provider: config.provider, authMode: provider.auth_mode });
                 await logCtx.failed();
                 this.sendHeadlessOAuth2Error(res, 400, 'unsupported_auth_mode');
@@ -479,6 +480,29 @@ class OAuthController {
 
             if (userScope) {
                 session.connectionConfig['user_scope'] = userScope;
+            }
+
+            // MCP_OAUTH2_GENERIC headless: discovery (RFC 9728/8414), dynamic client
+            // registration (RFC 7591) and PKCE happen server-side here, but — unlike
+            // the hosted connect path (mcpGenericRequest) — we return the provider
+            // authorize URL as JSON so the caller's browser opens it, and the provider
+            // redirects back to OUR configured callback_url, never Nango's hosted
+            // callback. Completion is the matching POST /oauth2/headless/:provider/complete
+            // (oauth2HeadlessComplete → mcpGenericHeadlessComplete). This keeps MCP
+            // custom servers on the exact same callback contract as every other
+            // headless OAuth2 provider. Branch BEFORE the OAUTH2-only client_id/secret,
+            // interpolation and grant_type checks below, which do not apply to MCP DCR.
+            if (isMcpGeneric) {
+                await this.mcpGenericHeadlessStart({
+                    provider: provider as ProviderMcpOAuth2Generic,
+                    config,
+                    session,
+                    connectionConfig: session.connectionConfig,
+                    callbackUrl,
+                    logCtx,
+                    res
+                });
+                return;
             }
 
             if (overrideCredentials && (overrideCredentials['oauth_client_id_override'] || overrideCredentials['oauth_client_secret_override'])) {
@@ -604,7 +628,7 @@ class OAuthController {
 
         try {
             session = await oAuthSessionService.findById(state);
-            if (!session || session.providerConfigKey !== providerConfigKey || session.authMode !== 'OAUTH2') {
+            if (!session || session.providerConfigKey !== providerConfigKey || (session.authMode !== 'OAUTH2' && session.authMode !== 'MCP_OAUTH2_GENERIC')) {
                 res.status(400).json({ error: { code: 'invalid_state', message: 'Authorization session not found or expired' } });
                 return;
             }
@@ -631,7 +655,8 @@ class OAuthController {
                 return;
             }
 
-            if (provider.auth_mode !== 'OAUTH2') {
+            const isMcpGeneric = provider.auth_mode === 'MCP_OAUTH2_GENERIC';
+            if (provider.auth_mode !== 'OAUTH2' && !isMcpGeneric) {
                 const error = WSErrBuilder.UnknownAuthMode(provider.auth_mode);
                 void logCtx.error(error.message);
                 await logCtx.failed();
@@ -649,6 +674,39 @@ class OAuthController {
             }
 
             await logCtx.enrichOperation({ integrationId: config.id!, integrationName: config.unique_key, providerName: config.provider });
+
+            // MCP_OAUTH2_GENERIC completion: exchange the code using the metadata /
+            // dynamically-registered client / code_verifier stashed on the session at
+            // start, upsert the connection (with the connect-session tags so the
+            // suger identity rides through), and fire the creation hook (webhook). The
+            // redirect_uri used for the exchange is OUR configured callback_url — the
+            // same one the provider redirected to — never Nango's hosted callback.
+            if (isMcpGeneric) {
+                const authorizationCode = parsed.query['code'];
+                if (!authorizationCode) {
+                    const providerContext = WSErrBuilder.getProviderErrorContextFromQuery(parsed.query);
+                    const error = WSErrBuilder.InvalidCallbackOAuth2(providerContext);
+                    void logCtx.error(error.message, { response: { queryParams: parsed.query } });
+                    await logCtx.failed();
+                    this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+                    return;
+                }
+                const success = await this.mcpGenericHeadlessComplete({
+                    provider: provider as ProviderMcpOAuth2Generic,
+                    config,
+                    session,
+                    authorizationCode,
+                    environment,
+                    account,
+                    logCtx
+                });
+                if (!success) {
+                    this.sendHeadlessOAuth2Error(res, 400, 'oauth2_callback_failed', 'Failed to complete MCP authorization');
+                    return;
+                }
+                res.status(200).json({ connectionId: session.connectionId, providerConfigKey: session.providerConfigKey });
+                return;
+            }
 
             if (req.cookies?.[`oauth2-${session.id}`] !== '1') {
                 metrics.increment(metrics.Types.AUTH_CALLBACK_STATE_COOKIE_MISSING, 1, {
@@ -1559,6 +1617,284 @@ class OAuthController {
             await logCtx.failed();
 
             return publisher.notifyErr(res, channel, providerConfigKey, connectionId, WSErrBuilder.UnknownError(prettyError));
+        }
+    }
+
+    /**
+     * Headless variant of mcpGenericRequest: run discovery + dynamic client
+     * registration + PKCE start, but RETURN the provider authorize URL as JSON
+     * (the caller's browser opens it) instead of `res.redirect`. The redirect_uri
+     * baked into the authorize URL and the registered client is OUR configured
+     * callback_url, so the provider redirects back to the integrator's public
+     * callback — never to Nango. The metadata / client info / code_verifier are
+     * stashed on the session for mcpGenericHeadlessComplete.
+     */
+    private async mcpGenericHeadlessStart({
+        provider: _provider,
+        config,
+        session,
+        connectionConfig,
+        callbackUrl,
+        logCtx,
+        res
+    }: {
+        provider: ProviderMcpOAuth2Generic;
+        config: ProviderConfig;
+        session: OAuthSession;
+        connectionConfig: Record<string, string>;
+        callbackUrl: string;
+        logCtx: LogContext;
+        res: Response;
+    }): Promise<void> {
+        const providerConfigKey = session.providerConfigKey;
+        const connectionId = session.connectionId;
+
+        const mcpServerUrl = connectionConfig['mcp_server_url'];
+        if (!mcpServerUrl) {
+            const error = WSErrBuilder.InvalidConnectionConfig('mcp_server_url', JSON.stringify(connectionConfig));
+            void logCtx.error(error.message);
+            await logCtx.failed();
+            this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+            return;
+        }
+
+        const discoveryResult = await genericMcpClient.discoverMcpMetadata(mcpServerUrl, logCtx);
+        if (!discoveryResult.success || !discoveryResult.metadata) {
+            const error = WSErrBuilder.UnknownError(discoveryResult.error || 'Failed to discover MCP metadata');
+            void logCtx.error(error.message);
+            await logCtx.failed();
+            this.sendHeadlessOAuth2Error(res, 400, error.type, error.message);
+            return;
+        }
+
+        const { metadata, resourceMetadata, scopes } = discoveryResult;
+
+        const clientMetadata: OAuthClientMetadata = {
+            redirect_uris: [callbackUrl],
+            token_endpoint_auth_method: 'none',
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+            client_name: config.custom?.['oauth_client_name'] || 'Nango Dynamic MCP Client',
+            client_uri: config.custom?.['oauth_client_uri'] || 'https://nango.dev',
+            ...(config.custom?.['oauth_client_logo_uri'] && { logo_uri: config.custom['oauth_client_logo_uri'] }),
+            scope: scopes || ''
+        };
+
+        let clientInformation: OAuthClientInformation;
+        if (metadata.registration_endpoint) {
+            clientInformation = await registerClient(mcpServerUrl, {
+                metadata,
+                clientMetadata
+            });
+        } else {
+            clientInformation = {
+                client_id: 'nango-client',
+                ...clientMetadata
+            };
+        }
+
+        const resource = resourceMetadata?.resource ? new URL(resourceMetadata.resource) : undefined;
+
+        const authResult = await startAuthorization(mcpServerUrl, {
+            metadata,
+            clientInformation,
+            redirectUrl: callbackUrl,
+            state: session.id,
+            scope: scopes || '',
+            ...(resource && { resource })
+        });
+
+        session.connectionConfig = {
+            ...(session.connectionConfig || {}),
+            oauth_metadata: JSON.stringify(metadata),
+            oauth_client_info: JSON.stringify(clientInformation),
+            oauth_resource_url: resource?.href || '',
+            oauth_code_verifier: authResult.codeVerifier,
+            mcp_server_url: mcpServerUrl
+        };
+
+        await oAuthSessionService.create(session);
+
+        void logCtx.info('OAuth2 headless MCP authorization started', {
+            authorizationUrl: authResult.authorizationUrl.href,
+            providerConfigKey,
+            connectionId,
+            scopes: scopes || ''
+        });
+
+        res.status(200).json({
+            authorizationUrl: authResult.authorizationUrl.href,
+            state: session.id,
+            connectionId,
+            providerConfigKey
+        });
+    }
+
+    /**
+     * Headless variant of mcpGenericCallback: exchange the authorization code
+     * using the session-stashed metadata / client info / code_verifier, upsert the
+     * connection (carrying the connect-session tags), and fire the creation hook.
+     * Returns true on success; the caller writes the JSON response. No websocket /
+     * publisher signalling — the completion is server-to-server.
+     */
+    private async mcpGenericHeadlessComplete({
+        provider,
+        config,
+        session,
+        authorizationCode,
+        environment,
+        account,
+        logCtx
+    }: {
+        provider: ProviderMcpOAuth2Generic;
+        config: ProviderConfig;
+        session: OAuthSession;
+        authorizationCode: string;
+        environment: DBEnvironment;
+        account: DBTeam;
+        logCtx: LogContext;
+    }): Promise<boolean> {
+        const providerConfigKey = session.providerConfigKey;
+        const connectionId = session.connectionId;
+
+        const metadataStr = session.connectionConfig['oauth_metadata'];
+        const clientInfoStr = session.connectionConfig['oauth_client_info'];
+        const resourceUrl = session.connectionConfig['oauth_resource_url'];
+        const codeVerifier = session.connectionConfig['oauth_code_verifier'];
+        const mcpServerUrl = session.connectionConfig['mcp_server_url'];
+
+        if (!metadataStr || !clientInfoStr || !codeVerifier || !mcpServerUrl) {
+            const error = WSErrBuilder.InvalidConnectionConfig('oauth_session_data', JSON.stringify(session.connectionConfig));
+            void logCtx.error(error.message);
+            await logCtx.failed();
+            return false;
+        }
+
+        try {
+            const metadata = OAuthMetadataSchema.parse(JSON.parse(metadataStr));
+            const clientInformation = OAuthClientInformationSchema.parse(JSON.parse(clientInfoStr));
+            const resource = resourceUrl ? new URL(resourceUrl) : undefined;
+
+            const redirectUri = await environmentService.getOauthCallbackUrl(session.environmentId);
+
+            const tokens: OAuthTokens = await exchangeAuthorization(mcpServerUrl, {
+                metadata,
+                clientInformation,
+                authorizationCode,
+                codeVerifier,
+                redirectUri,
+                ...(resource && { resource })
+            });
+
+            const parsedRawCredentials: OAuth2Credentials = {
+                type: 'OAUTH2',
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token || undefined,
+                expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
+                raw: tokens
+            };
+
+            let connectSession: ConnectSessionAndEndUser | undefined;
+            if (session.connectSessionId) {
+                const connectSessionRes = await getConnectSession(db.knex, {
+                    id: session.connectSessionId,
+                    accountId: account.id,
+                    environmentId: environment.id
+                });
+                if (connectSessionRes.isErr()) {
+                    void logCtx.error('Failed to get session');
+                    await logCtx.failed();
+                    return false;
+                }
+                connectSession = connectSessionRes.value;
+            }
+
+            const tags = connectSession?.connectSession.tags;
+
+            const [updatedConnection] = await connectionService.upsertConnection({
+                connectionId,
+                providerConfigKey,
+                parsedRawCredentials,
+                connectionConfig: session.connectionConfig,
+                environmentId: session.environmentId,
+                tags
+            });
+
+            if (!updatedConnection) {
+                void logCtx.error('Failed to create connection');
+                await logCtx.failed();
+                return false;
+            }
+
+            if (connectSession) {
+                await syncEndUserToConnection(db.knex, {
+                    connectSession: connectSession.connectSession,
+                    connection: updatedConnection.connection,
+                    account,
+                    environment
+                });
+            }
+
+            void connectionCreatedHook(
+                {
+                    connection: updatedConnection.connection,
+                    environment,
+                    account,
+                    auth_mode: provider.auth_mode,
+                    operation: updatedConnection.operation || 'unknown',
+                    endUser: connectSession?.connectSession.endUser ?? undefined
+                },
+                account,
+                config,
+                logContextGetter
+            );
+
+            await logCtx.success();
+
+            metrics.increment(metrics.Types.AUTH_SUCCESS, 1, {
+                auth_mode: 'MCP_OAUTH2_GENERIC',
+                provider: config.provider
+            });
+
+            return true;
+        } catch (err) {
+            const prettyError = stringifyError(err, { pretty: true });
+
+            errorManager.report(err, {
+                source: ErrorSourceEnum.PLATFORM,
+                operation: LogActionEnum.AUTH,
+                environmentId: session.environmentId,
+                metadata: {
+                    providerConfigKey: session.providerConfigKey,
+                    connectionId: session.connectionId
+                }
+            });
+
+            void logCtx.error('Unknown error', { error: err });
+            await logCtx.failed();
+
+            void connectionCreationFailedHook(
+                {
+                    connection: { connection_id: connectionId, provider_config_key: providerConfigKey },
+                    environment,
+                    account,
+                    auth_mode: provider.auth_mode,
+                    error: {
+                        type: 'unknown',
+                        description: prettyError
+                    },
+                    operation: 'unknown'
+                },
+                account,
+                config
+            );
+
+            metrics.increment(metrics.Types.AUTH_FAILURE, 1, {
+                auth_mode: 'MCP_OAUTH2_GENERIC',
+                provider: config.provider
+            });
+
+            return false;
         }
     }
 
