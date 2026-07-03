@@ -13108,7 +13108,7 @@ notion:
     setup_guide_url: https://nango.dev/docs/api-integrations/notion/how-to-register-your-own-notion-api-oauth-app
 
 notion-api-key:
-    display_name: Notion (Internal Integration Token)
+    display_name: Notion (API Key)
     categories:
         - knowledge-base
         - productivity
