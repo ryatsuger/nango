@@ -13107,6 +13107,33 @@ notion:
     docs: https://nango.dev/docs/api-integrations/notion
     setup_guide_url: https://nango.dev/docs/api-integrations/notion/how-to-register-your-own-notion-api-oauth-app
 
+notion-api-key:
+    display_name: Notion (Internal Integration Token)
+    categories:
+        - knowledge-base
+        - productivity
+    auth_mode: API_KEY
+    proxy:
+        retry:
+            after:
+                - 'retry-after'
+        base_url: https://api.notion.com
+        headers:
+            authorization: Bearer ${apiKey}
+            'notion-version': '2022-06-28'
+        paginate:
+            type: cursor
+            cursor_path_in_response: next_cursor
+            cursor_name_in_request: start_cursor
+            limit_name_in_request: page_size
+            response_path: results
+    docs: https://nango.dev/docs/api-integrations/notion
+    credentials:
+        apiKey:
+            type: string
+            title: Internal Integration Token
+            description: Your Notion internal integration token (starts with "secret_" or "ntn_")
+
 notion-mcp:
     display_name: Notion (MCP)
     categories:
