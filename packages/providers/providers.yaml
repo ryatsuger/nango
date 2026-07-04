@@ -1504,6 +1504,32 @@ asana:
     docs: https://nango.dev/docs/api-integrations/asana
     setup_guide_url: https://nango.dev/docs/api-integrations/asana/how-to-register-your-own-asana-api-oauth-app
 
+asana-api-key:
+    display_name: Asana (API Key)
+    categories:
+        - productivity
+        - ticketing
+    auth_mode: API_KEY
+    proxy:
+        base_url: https://app.asana.com
+        headers:
+            authorization: Bearer ${apiKey}
+        retry:
+            after:
+                - 'retry-after'
+        paginate:
+            type: cursor
+            cursor_path_in_response: next_page.offset
+            cursor_name_in_request: offset
+            response_path: data
+            limit_name_in_request: limit
+    docs: https://nango.dev/docs/api-integrations/asana
+    credentials:
+        apiKey:
+            type: string
+            title: Service Account Token
+            description: Asana Service Account or Personal Access Token (sent as Bearer)
+
 asana-mcp:
     display_name: Asana (MCP)
     categories:
@@ -18397,6 +18423,31 @@ slack:
     webhook_routing_script: slackWebhookRouting
     docs: https://nango.dev/docs/api-integrations/slack
     setup_guide_url: https://nango.dev/docs/api-integrations/slack/how-to-register-your-own-slack-api-oauth-app
+
+slack-api-key:
+    display_name: Slack (API Key)
+    categories:
+        - popular
+        - productivity
+    auth_mode: API_KEY
+    proxy:
+        base_url: https://slack.com/api
+        headers:
+            authorization: Bearer ${apiKey}
+        retry:
+            after:
+                - 'retry-after'
+        paginate:
+            type: cursor
+            cursor_path_in_response: response_metadata.next_cursor
+            cursor_name_in_request: cursor
+            limit_name_in_request: limit
+    docs: https://nango.dev/docs/api-integrations/slack
+    credentials:
+        apiKey:
+            type: string
+            title: Bot Token
+            description: Slack bot token (xoxb-…), sent as Bearer
 
 slack-mcp:
     display_name: Slack (MCP)
