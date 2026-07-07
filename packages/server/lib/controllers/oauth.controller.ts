@@ -75,6 +75,14 @@ import type {
 } from '@nangohq/types';
 import type { NextFunction, Request, Response } from 'express';
 
+// Auth modes the headless OAuth2 endpoints (/oauth2/headless/:provider/start|complete)
+// support. OAUTH2 and MCP_OAUTH2 are standard authorization-code + PKCE flows
+// (MCP_OAUTH2 = static-client MCP servers such as the "suger" template); both ride
+// the same OAUTH2 tail (buildOAuth2AuthorizationUrl adds PKCE unless disable_pkce;
+// handleTokenExchangeAndConnectionCreation handles MCP_OAUTH2). MCP_OAUTH2_GENERIC
+// additionally needs RFC 9728/8414 discovery + RFC 7591 DCR, handled by its own branch.
+const HEADLESS_OAUTH2_AUTH_MODES = new Set(['OAUTH2', 'MCP_OAUTH2', 'MCP_OAUTH2_GENERIC']);
+
 class OAuthController {
     public async oauthRequest(req: Request, res: Response<any, Required<RequestLocals>>, _next: NextFunction) {
         const { account, environment, connectSession } = res.locals;
@@ -426,7 +434,7 @@ class OAuthController {
             }
 
             const isMcpGeneric = provider.auth_mode === 'MCP_OAUTH2_GENERIC';
-            if ((provider.auth_mode !== 'OAUTH2' && !isMcpGeneric) || provider.installation === 'outbound') {
+            if (!HEADLESS_OAUTH2_AUTH_MODES.has(provider.auth_mode) || provider.installation === 'outbound') {
                 void logCtx.error('Provider does not support headless OAuth2', { provider: config.provider, authMode: provider.auth_mode });
                 await logCtx.failed();
                 this.sendHeadlessOAuth2Error(res, 400, 'unsupported_auth_mode');
@@ -628,7 +636,7 @@ class OAuthController {
 
         try {
             session = await oAuthSessionService.findById(state);
-            if (!session || session.providerConfigKey !== providerConfigKey || (session.authMode !== 'OAUTH2' && session.authMode !== 'MCP_OAUTH2_GENERIC')) {
+            if (!session || session.providerConfigKey !== providerConfigKey || !HEADLESS_OAUTH2_AUTH_MODES.has(session.authMode)) {
                 res.status(400).json({ error: { code: 'invalid_state', message: 'Authorization session not found or expired' } });
                 return;
             }
@@ -656,7 +664,7 @@ class OAuthController {
             }
 
             const isMcpGeneric = provider.auth_mode === 'MCP_OAUTH2_GENERIC';
-            if (provider.auth_mode !== 'OAUTH2' && !isMcpGeneric) {
+            if (!HEADLESS_OAUTH2_AUTH_MODES.has(provider.auth_mode)) {
                 const error = WSErrBuilder.UnknownAuthMode(provider.auth_mode);
                 void logCtx.error(error.message);
                 await logCtx.failed();
