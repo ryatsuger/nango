@@ -22693,7 +22693,7 @@ zuora:
             example: rest.test
             doc_section: '#step-1-finding-your-zuora-subdomain'
             order: 1
-asana-service-account:
+asana-api-key:
     display_name: Asana (Service Account)
     categories:
         - productivity
