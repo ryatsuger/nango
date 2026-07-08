@@ -18638,6 +18638,14 @@ snowflake:
         grant_type: refresh_token
     proxy:
         base_url: https://${connectionConfig.snowflake_account_url}
+        # Snowflake's SQL API requires the OAuth token to be tagged as an OAuth
+        # token; without X-Snowflake-Authorization-Token-Type the /api/v2/statements
+        # call is rejected. (OAUTH2 auto-injects Authorization, but declaring it
+        # here keeps the header set explicit alongside the token-type + content-type.)
+        headers:
+            authorization: Bearer ${accessToken}
+            x-snowflake-authorization-token-type: OAUTH
+            content-type: application/json
     post_connection_script: snowflakePostConnection
     docs: https://nango.dev/docs/integrations/all/snowflake
     connection_config:
