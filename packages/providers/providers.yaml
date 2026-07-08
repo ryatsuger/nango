@@ -22693,3 +22693,18 @@ zuora:
             example: rest.test
             doc_section: '#step-1-finding-your-zuora-subdomain'
             order: 1
+gong-api-key:
+    display_name: Gong (Service Account)
+    categories:
+        - sales
+    auth_mode: API_KEY
+    proxy:
+        base_url: https://api.gong.io
+        headers:
+            authorization: Bearer ${apiKey}
+    docs: https://help.gong.io/docs/receive-access-to-the-api
+    credentials:
+        apiKey:
+            type: string
+            title: Access Key / Secret
+            description: Org-wide Gong Access Key + Secret (Basic auth is derived by the action helper from connection_config.apiBaseUrl + the vaulted credential).
