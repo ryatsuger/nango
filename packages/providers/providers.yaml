@@ -22693,21 +22693,3 @@ zuora:
             example: rest.test
             doc_section: '#step-1-finding-your-zuora-subdomain'
             order: 1
-asana-api-key:
-    display_name: Asana (Service Account)
-    categories:
-        - productivity
-    auth_mode: API_KEY
-    proxy:
-        base_url: https://app.asana.com
-        headers:
-            authorization: Bearer ${apiKey}
-        retry:
-            after:
-                - 'retry-after'
-    docs: https://developers.asana.com/docs/service-accounts
-    credentials:
-        apiKey:
-            type: string
-            title: Service Account Token
-            description: An Asana Enterprise Service Account token (org-wide, long-lived Bearer token).
