@@ -12122,6 +12122,44 @@ microsoft-dynamics-365:
             example: org.crm.dynamics.com
             order: 2
 
+microsoft-dynamics-365-cc:
+    display_name: Microsoft Dynamics 365 (Client Credentials)
+    categories:
+        - crm
+    # Org-level (app-only) Dataverse access: Nango mints a client-credentials token
+    # with the org's Azure AD app for the tenant + instance. token_url interpolates
+    # ${connectionConfig.tenantId}; proxy.base_url interpolates ${connectionConfig.instanceUrl}.
+    auth_mode: OAUTH2_CC
+    token_url: https://login.microsoftonline.com/${connectionConfig.tenantId}/oauth2/v2.0/token
+    token_params:
+        grant_type: client_credentials
+    # Dataverse's resource scope (https://{instanceUrl}/.default) is per-instance and
+    # is NOT a template default: the OAUTH2_CC mint reads the scope from the
+    # connection's own connection_config.oauth_scopes (connection.service.ts), which
+    # the ai-service stores as the concrete value at connection-creation time.
+    proxy:
+        base_url: https://${connectionConfig.instanceUrl}/api/data/v9.2
+        headers:
+            accept: application/json
+            odata-version: '4.0'
+            odata-maxversion: '4.0'
+    docs: https://nango.dev/docs/integrations/all/microsoft-dynamics-365
+    connection_config:
+        tenantId:
+            type: string
+            title: Azure AD Tenant ID
+            description: The Microsoft Entra (Azure AD) tenant that owns the Dynamics 365 app registration
+            format: uuid
+            example: a1b2c3d4-e5f6-47a8-9b0c-d1234567890f
+            order: 1
+        instanceUrl:
+            type: string
+            title: Dataverse Instance URL
+            description: The host of your Dynamics 365 / Dataverse environment, without the scheme
+            pattern: '^[a-zA-Z0-9.-]+\.dynamics\.com$'
+            example: org.crm.dynamics.com
+            order: 2
+
 microsoft-ads:
     display_name: Microsoft Ads
     alias: microsoft
